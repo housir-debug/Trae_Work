@@ -1,0 +1,19 @@
+{
+  "name": "番茄Todo - 专注助手",
+  "short_name": "番茄Todo",
+  "description": "番茄钟 + 待办事项 + 数据统计 + 主题自由定制",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FF6B6B",
+  "theme_color": "#FF6B6B",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
