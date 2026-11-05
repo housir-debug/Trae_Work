@@ -1,9 +1,11 @@
 // screens/home_screen.dart - 主界面:番茄钟 + 任务列表
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../models/pomodoro_record.dart';
 import '../providers/pomodoro_provider.dart';
 import '../providers/task_provider.dart';
 import '../providers/settings_provider.dart';
+import '../theme/backgrounds.dart';
 import '../widgets/pomodoro_timer.dart';
 import '../widgets/task_item.dart';
 import '../widgets/task_input.dart';

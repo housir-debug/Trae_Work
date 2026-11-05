@@ -6,6 +6,7 @@ import 'package:fl_chart/fl_chart.dart';
 import '../models/pomodoro_record.dart';
 import '../providers/pomodoro_provider.dart';
 import '../providers/settings_provider.dart';
+import '../theme/backgrounds.dart';
 import '../widgets/heatmap_calendar.dart';
 
 class StatsScreen extends StatelessWidget {
