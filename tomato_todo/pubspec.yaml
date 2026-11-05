@@ -1,0 +1,29 @@
+name: tomato_todo
+description: 番茄钟 + 待办事项 全能助手,复刻番茄Todo,全部功能免费
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  provider: ^6.1.1
+  shared_preferences: ^2.2.2
+  fl_chart: ^0.69.0
+  intl: ^0.19.0
+  uuid: ^4.2.2
+  image_picker: ^1.0.7
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
+    - assets/sounds/
