@@ -125,6 +125,9 @@ class TimerService {
     }
   }
 
+  /// 当前阶段总秒数(供进度展示)
+  int get totalSeconds => _phaseTotalSeconds();
+
   int _phaseTotalSeconds() {
     switch (_phase) {
       case TimerPhase.work:

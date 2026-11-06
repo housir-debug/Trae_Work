@@ -1,4 +1,6 @@
 // providers/settings_provider.dart - 设置 & 主题全局状态
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/app_settings.dart';
@@ -9,6 +11,10 @@ import '../theme/backgrounds.dart';
 class SettingsProvider extends ChangeNotifier {
   final StorageService _storage;
   AppSettings _settings = AppSettings();
+
+  /// 设置写盘防抖: 拖动滑块时避免频繁序列化/落盘
+  Timer? _saveTimer;
+  AppSettings? _dirty;
 
   SettingsProvider(this._storage);
 
@@ -31,8 +37,25 @@ class SettingsProvider extends ChangeNotifier {
 
   Future<void> update(AppSettings newSettings) async {
     _settings = newSettings;
-    await _storage.saveSettings(_settings);
+    _dirty = newSettings;
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 250), flush);
     notifyListeners();
+  }
+
+  /// 立即落盘(退出/切后台时调用)
+  void flush() {
+    _saveTimer?.cancel();
+    _saveTimer = null;
+    final pending = _dirty;
+    _dirty = null;
+    if (pending != null) _storage.saveSettings(pending);
+  }
+
+  @override
+  void dispose() {
+    flush();
+    super.dispose();
   }
 
   Future<void> setTheme(int index) async {

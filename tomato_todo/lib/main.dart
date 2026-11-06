@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import 'core/app_navigator.dart';
 import 'models/app_settings.dart';
 import 'providers/goal_provider.dart';
 import 'providers/habit_provider.dart';
@@ -18,6 +19,7 @@ import 'providers/task_provider.dart';
 import 'screens/goals_screen.dart';
 import 'screens/habits_screen.dart';
 import 'screens/lock_screen.dart';
+import 'screens/schedule_screen.dart';
 import 'screens/stats_screen.dart';
 import 'screens/tasks_screen.dart';
 import 'screens/today_screen.dart';
@@ -25,10 +27,6 @@ import 'services/backup_service.dart';
 import 'services/notification_service.dart';
 import 'services/storage_service.dart';
 import 'theme/backgrounds.dart';
-
-/// 全局导航, 重新上锁时用于收起已打开的页面
-final GlobalKey<NavigatorState> appNavigatorKey =
-    GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -187,6 +185,19 @@ class _RootGateState extends State<RootGate> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // 通知点击: 统一走 RootGate, 避免绕过应用锁
+    NotificationService.instance.onEventTap = _openPendingEvent;
+    // 冷启动时由通知进入: 首帧后跳到对应日期的周视图
+    WidgetsBinding.instance.addPostFrameCallback((_) => _openPendingEvent());
+  }
+
+  void _openPendingEvent() {
+    if (_locked) return;
+    final key = NotificationService.instance.consumePendingEventDate();
+    if (key == null) return;
+    appNavigatorKey.currentState?.push(MaterialPageRoute(
+      builder: (_) => ScheduleScreen(initialDate: DateTime.tryParse(key)),
+    ));
   }
 
   @override
@@ -203,6 +214,9 @@ class _RootGateState extends State<RootGate> with WidgetsBindingObserver {
       _wasBackground = true;
       _relockTimer?.cancel();
       _relockTimer = null;
+      try {
+        context.read<SettingsProvider>().flush();
+      } catch (_) {}
     } else if (state == AppLifecycleState.resumed) {
       // 回到前台先按真实时间校准番茄钟
       try {
@@ -237,6 +251,7 @@ class _RootGateState extends State<RootGate> with WidgetsBindingObserver {
         onUnlocked: () {
           _relockTimer?.cancel();
           setState(() => _locked = false);
+          _openPendingEvent();
         },
       );
     }

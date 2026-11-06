@@ -95,10 +95,54 @@ class ScheduleProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> delete(String id) async {
-    _events.removeWhere((e) => e.id == id);
+  /// 删除并返回被删除的日程(用于撤销)
+  Future<ScheduleEvent?> delete(String id) async {
+    final idx = _events.indexWhere((e) => e.id == id);
+    if (idx < 0) return null;
+    final removed = _events.removeAt(idx);
     await _persist();
     notifyListeners();
+    return removed;
+  }
+
+  /// 撤销删除
+  Future<void> restore(ScheduleEvent event) async {
+    if (_events.any((e) => e.id == event.id)) return;
+    _events.add(event);
+    await _persist();
+    notifyListeners();
+  }
+
+  /// 把某天的全部日程复制到另一天(同名同起点的不重复复制)
+  Future<int> copyDay(DateTime from, DateTime to) async {
+    final fromKey = dateKey(from);
+    final toKey = dateKey(to);
+    if (fromKey == toKey) return 0;
+    final targets = _events.where((e) => e.dateKey == toKey).toList();
+    var count = 0;
+    for (final e in _events.where((e) => e.dateKey == fromKey)) {
+      final exists = targets.any((t) =>
+          t.title == e.title && t.startMinute == e.startMinute);
+      if (exists) continue;
+      final copy = ScheduleEvent(
+        dateKey: toKey,
+        title: e.title,
+        startMinute: e.startMinute,
+        endMinute: e.endMinute,
+        category: e.category,
+        note: e.note,
+        reminderMinutes: e.reminderMinutes,
+        taskId: e.taskId,
+      );
+      _events.add(copy);
+      targets.add(copy);
+      count++;
+    }
+    if (count > 0) {
+      await _persist();
+      notifyListeners();
+    }
+    return count;
   }
 
   Future<void> toggleDone(String id) async {

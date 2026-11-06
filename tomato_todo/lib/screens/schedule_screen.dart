@@ -11,24 +11,39 @@ import '../widgets/schedule_editor.dart';
 import '../widgets/ui.dart';
 
 class ScheduleScreen extends StatefulWidget {
-  const ScheduleScreen({super.key});
+  /// 打开时默认选中的日期(通知点击跳转时使用)
+  final DateTime? initialDate;
+
+  const ScheduleScreen({super.key, this.initialDate});
 
   @override
   State<ScheduleScreen> createState() => _ScheduleScreenState();
 }
 
 class _ScheduleScreenState extends State<ScheduleScreen> {
-  static const int _startHour = 6;
+  static const int _startHour = 0;
   static const int _endHour = 24;
   static const double _hourHeight = 62.0;
   static const double _labelWidth = 48.0;
 
-  late DateTime _selected = startOfDay(DateTime.now());
-  late DateTime _weekStart = startOfWeek(DateTime.now());
+  late DateTime _selected =
+      startOfDay(widget.initialDate ?? DateTime.now());
+  late DateTime _weekStart =
+      startOfWeek(widget.initialDate ?? DateTime.now());
+
+  /// 首次打开自动滚到早上 7 点附近
+  late final ScrollController _scroll =
+      ScrollController(initialScrollOffset: 7 * _hourHeight);
 
   String? _dragId;
   double _dragOffset = 0;
   int _dragBaseStart = 0;
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
 
   void _selectDate(DateTime d) {
     setState(() {
@@ -42,6 +57,17 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       _weekStart = _weekStart.add(Duration(days: 7 * deltaWeeks));
       _selected = _weekStart;
     });
+  }
+
+  Future<void> _copyToTomorrow() async {
+    final tomorrow = _selected.add(const Duration(days: 1));
+    final count =
+        await context.read<ScheduleProvider>().copyDay(_selected, tomorrow);
+    if (!mounted) return;
+    showToast(
+      context,
+      count == 0 ? '当天没有可复制的日程' : '已复制 $count 项到 ${shortDate(tomorrow)}',
+    );
   }
 
   @override
@@ -63,6 +89,12 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 fontWeight: FontWeight.w700,
                 color: theme.foreground)),
         actions: [
+          IconButton(
+            tooltip: '复制到明天',
+            onPressed: _copyToTomorrow,
+            icon: Icon(Icons.copy_all_outlined,
+                size: 19, color: theme.primary),
+          ),
           TextButton(
             onPressed: () => _selectDate(DateTime.now()),
             child: Text('今天',
@@ -81,7 +113,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       ),
       body: Column(
         children: [
-          _weekStrip(theme),
+          _weekStrip(theme, provider),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 6, 20, 8),
             child: Row(
@@ -112,7 +144,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     );
   }
 
-  Widget _weekStrip(ThemeDef theme) {
+  Widget _weekStrip(ThemeDef theme, ScheduleProvider provider) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
       child: Row(
@@ -124,10 +156,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 final d = _weekStart.add(Duration(days: i));
                 final selected = isSameDate(d, _selected);
                 final isToday = isSameDate(d, DateTime.now());
-                final count = context
-                    .watch<ScheduleProvider>()
-                    .eventsFor(d)
-                    .length;
+                final count = provider.eventsFor(d).length;
                 return Expanded(
                   child: GestureDetector(
                     onTap: () => _selectDate(d),
@@ -211,6 +240,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     const totalHeight = (_endHour - _startHour) * _hourHeight;
 
     return SingleChildScrollView(
+      controller: _scroll,
       padding: const EdgeInsets.only(bottom: 100),
       child: SizedBox(
         height: totalHeight,
@@ -224,7 +254,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                     startMinute + details.localPosition.dy / _hourHeight * 60;
                 final snapped = ((minutes + 14) ~/ 15) * 15;
                 final clamped =
-                    snapped.clamp(_startHour * 60, (_endHour - 1) * 60).toInt();
+                    snapped.clamp(0, _endHour * 60 - 15).toInt();
                 showScheduleEditor(
                   context,
                   date: _selected,

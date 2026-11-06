@@ -1,5 +1,5 @@
 // services/notification_service.dart - 本地提醒(日程 / 每日 / 番茄钟)
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -30,6 +30,27 @@ class NotificationService {
 
   bool _ready = false;
 
+  /// 点击日程通知后待打开的日期(由 RootGate 在解锁/首帧后消费)
+  String? _pendingEventDateKey;
+
+  /// 通知被点击时回调(由 RootGate 注册, 负责上锁状态下的安全判断)
+  void Function()? onEventTap;
+
+  String? consumePendingEventDate() {
+    final key = _pendingEventDateKey;
+    _pendingEventDateKey = null;
+    return key;
+  }
+
+  void _handleResponse(NotificationResponse response) {
+    final payload = response.payload;
+    if (payload == null || !payload.startsWith('event:')) return;
+    final parts = payload.split(':');
+    _pendingEventDateKey =
+        parts.length >= 3 ? parts[2] : dateKey(DateTime.now());
+    onEventTap?.call();
+  }
+
   Future<void> init() async {
     try {
       tzdata.initializeTimeZones();
@@ -42,7 +63,19 @@ class NotificationService {
     const android = AndroidInitializationSettings('ic_notification');
     const settings = InitializationSettings(android: android);
     try {
-      await _plugin.initialize(settings);
+      await _plugin.initialize(
+        settings,
+        onDidReceiveNotificationResponse: _handleResponse,
+      );
+      final launch = await _plugin.getNotificationAppLaunchDetails();
+      if (launch?.didNotificationLaunchApp == true) {
+        final payload = launch?.notificationResponse?.payload;
+        if (payload != null && payload.startsWith('event:')) {
+          final parts = payload.split(':');
+          _pendingEventDateKey =
+              parts.length >= 3 ? parts[2] : dateKey(DateTime.now());
+        }
+      }
       final androidImpl = _plugin.resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>();
       await androidImpl?.createNotificationChannel(const AndroidNotificationChannel(
@@ -183,7 +216,7 @@ class NotificationService {
             : '还有 $reminder 分钟开始, 提前准备一下',
         at: notifyAt,
         channelId: channelReminders,
-        payload: 'event:${e.id}',
+        payload: 'event:${e.id}:${e.dateKey}',
       );
       newIds.add('$id');
     }
@@ -245,5 +278,36 @@ class NotificationService {
   Future<void> cancelDailyReminders() async {
     await cancel(_dailyPlanId);
     await cancel(_dailyReviewId);
+  }
+
+  /// 系统通知权限是否已开启
+  Future<bool> areNotificationsEnabled() async {
+    if (!_ready) return false;
+    final impl = _plugin.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    return await impl?.areNotificationsEnabled() ?? false;
+  }
+
+  /// 请求通知权限(未授权时)
+  Future<bool> requestPermission() async {
+    if (!_ready) return false;
+    final impl = _plugin.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    return await impl?.requestNotificationsPermission() ?? false;
+  }
+
+  /// 立即发送一条测试通知
+  Future<void> showTest() async {
+    if (!_ready) return;
+    try {
+      await _plugin.show(
+        900001,
+        '时光秘书 · 测试提醒',
+        '通知工作正常, 到点会及时提醒你',
+        _details(channelReminders),
+      );
+    } catch (e) {
+      debugPrint('发送测试通知失败: $e');
+    }
   }
 }

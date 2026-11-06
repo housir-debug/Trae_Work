@@ -16,6 +16,7 @@ import '../providers/schedule_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/task_provider.dart';
 import '../services/backup_service.dart';
+import '../services/notification_service.dart';
 import '../services/storage_service.dart';
 import '../theme/backgrounds.dart';
 import '../widgets/ui.dart';
@@ -277,6 +278,10 @@ class SettingsScreen extends StatelessWidget {
                     value: settings.showNotification,
                     onChanged: (_) => sp.toggleNotification(),
                   ),
+                  Divider(
+                      height: 1,
+                      color: theme.foreground.withOpacity(0.06)),
+                  const _NotificationStatusRow(),
                 ],
               ),
             ),
@@ -628,7 +633,7 @@ class SettingsScreen extends StatelessWidget {
                                 fontWeight: FontWeight.w700,
                                 color: theme.foreground)),
                         const SizedBox(height: 2),
-                        Text('版本 2.1.0 · 专属个人的时间管理秘书',
+                        Text('版本 2.2.0 · 专属个人的时间管理秘书',
                             style: TextStyle(
                                 fontSize: 10, color: theme.muted)),
                         Text('无需会员 · 无广告 · 全部功能开放',
@@ -842,6 +847,107 @@ class SettingsScreen extends StatelessWidget {
     context.read<ScheduleProvider>().load();
     context.read<JournalProvider>().load();
     context.read<PomodoroProvider>().reloadFromStorage();
+  }
+}
+
+/// 系统通知权限状态 + 测试提醒
+class _NotificationStatusRow extends StatefulWidget {
+  const _NotificationStatusRow();
+
+  @override
+  State<_NotificationStatusRow> createState() =>
+      _NotificationStatusRowState();
+}
+
+class _NotificationStatusRowState extends State<_NotificationStatusRow> {
+  bool? _enabled;
+  bool _checking = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _check();
+  }
+
+  Future<void> _check() async {
+    final v = await NotificationService.instance.areNotificationsEnabled();
+    if (!mounted) return;
+    setState(() {
+      _enabled = v;
+      _checking = false;
+    });
+  }
+
+  Future<void> _onTap() async {
+    if (_enabled == true) {
+      await NotificationService.instance.showTest();
+      if (mounted) showToast(context, '已发送测试提醒, 请查看通知栏');
+      return;
+    }
+    final ok = await NotificationService.instance.requestPermission();
+    if (!mounted) return;
+    setState(() => _enabled = ok);
+    if (ok) {
+      await NotificationService.instance.showTest();
+      if (mounted) showToast(context, '通知权限已开启, 已发送测试提醒');
+    } else {
+      showToast(context, '未获得通知权限, 请到系统设置中允许通知');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.watch<SettingsProvider>().currentTheme;
+    final status = _checking
+        ? '检测中…'
+        : (_enabled == true ? '已开启, 提醒可正常送达' : '未授权, 可能收不到提醒');
+    final action = _checking
+        ? null
+        : (_enabled == true ? '发送测试' : '去开启');
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Icon(Icons.notifications_none, size: 18, color: theme.primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('通知权限',
+                    style: TextStyle(fontSize: 13, color: theme.foreground)),
+                const SizedBox(height: 2),
+                Text(status,
+                    style: TextStyle(
+                        fontSize: 10,
+                        color: _enabled == false
+                            ? const Color(0xFFFF5252)
+                            : theme.muted)),
+              ],
+            ),
+          ),
+          if (action != null)
+            GestureDetector(
+              onTap: _onTap,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: theme.primary.withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  action,
+                  style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: theme.primary),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }
 

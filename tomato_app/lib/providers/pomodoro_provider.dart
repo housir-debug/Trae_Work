@@ -24,6 +24,9 @@ class PomodoroProvider extends ChangeNotifier {
   /// 可注入的通知服务(由 main 注入)
   NotificationService? notifications;
 
+  /// 每秒变化的剩余秒数(独立通知, 避免整页重建)
+  final ValueNotifier<int> remainingNotifier = ValueNotifier<int>(0);
+
   /// 完成一个专注阶段时回调(用于给任务累加番茄)
   void Function(PomodoroRecord record, String? taskId)? onWorkCompleted;
 
@@ -32,6 +35,7 @@ class PomodoroProvider extends ChangeNotifier {
   TimerState get state => _timer?.state ?? TimerState.idle;
   TimerPhase get phase => _timer?.phase ?? TimerPhase.work;
   int get remainingSeconds => _timer?.remainingSeconds ?? 0;
+  int get phaseTotalSeconds => _timer?.totalSeconds ?? 60;
   double get progress => _timer?.progress ?? 0;
   String get phaseLabel => _timer?.phaseLabel ?? '专注中';
   int get completedWorkCount => _completedWorkCount;
@@ -44,6 +48,13 @@ class PomodoroProvider extends ChangeNotifier {
   String? get currentTaskTitle => _currentTaskTitle;
 
   String get timeDisplay => _timer?.formatTime(remainingSeconds) ?? '--:--';
+
+  String formatSeconds(int seconds) {
+    final s = seconds < 0 ? 0 : seconds;
+    final m = s ~/ 60;
+    final r = s % 60;
+    return '${m.toString().padLeft(2, '0')}:${r.toString().padLeft(2, '0')}';
+  }
 
   void init(AppSettings settings) {
     _settings = settings;
@@ -65,15 +76,23 @@ class PomodoroProvider extends ChangeNotifier {
     if (snapshot != null) {
       _timer!.restoreSnapshot(snapshot);
     }
+    _emitTick();
     _syncTimerNotification();
     notifyListeners();
   }
 
+  void _emitTick() {
+    remainingNotifier.value = _timer?.remainingSeconds ?? 0;
+  }
+
   TimerService _buildTimer(AppSettings settings) => TimerService(
         settings: settings,
-        onTick: () => notifyListeners(),
+        onTick: _emitTick,
         onPhaseChange: (_) => notifyListeners(),
-        onStateChanged: _persistTimer,
+        onStateChanged: () {
+          _persistTimer();
+          _emitTick();
+        },
         onPhaseComplete: (record) {
           final enriched = PomodoroRecord(
             id: record.id,
@@ -98,6 +117,7 @@ class PomodoroProvider extends ChangeNotifier {
             SystemSound.play(SystemSoundType.alert);
           }
           notifications?.cancelTimerEnd();
+          _emitTick();
           notifyListeners();
 
           if (_timer!.settings.autoStartNext) {
@@ -116,6 +136,7 @@ class PomodoroProvider extends ChangeNotifier {
         old.longBreakDuration != settings.longBreakDuration;
     _timer?.applySettings(settings, resetDuration: durationChanged);
     _syncTimerNotification();
+    _emitTick();
     notifyListeners();
   }
 
@@ -269,6 +290,13 @@ class PomodoroProvider extends ChangeNotifier {
     _timer?.reset();
     _storage.saveTimerSnapshot(null);
     notifications?.cancelTimerEnd();
+    _emitTick();
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    remainingNotifier.dispose();
+    super.dispose();
   }
 }

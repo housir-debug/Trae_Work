@@ -21,6 +21,7 @@ class TasksScreen extends StatefulWidget {
 
 class _TasksScreenState extends State<TasksScreen> {
   int _tab = 0; // 0 进行中, 1 已完成
+  String? _tag;
   final _search = TextEditingController();
 
   @override
@@ -33,7 +34,10 @@ class _TasksScreenState extends State<TasksScreen> {
   Widget build(BuildContext context) {
     final theme = context.watch<SettingsProvider>().currentTheme;
     final provider = context.watch<TaskProvider>();
-    final tasks = provider.search(_search.text);
+    var tasks = provider.search(_search.text);
+    if (_tag != null) {
+      tasks = tasks.where((t) => t.tags.contains(_tag)).toList();
+    }
 
     final weekEnd = startOfWeek(DateTime.now()).add(const Duration(days: 7));
 
@@ -143,6 +147,27 @@ class _TasksScreenState extends State<TasksScreen> {
               ],
             ),
           ),
+          if (_tab == 0 && provider.activeTags.isNotEmpty)
+            SizedBox(
+              height: 34,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                children: [
+                  for (final tag in provider.activeTags.take(12))
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: PillChip(
+                        label: '#$tag',
+                        color: theme.accent,
+                        selected: _tag == tag,
+                        onTap: () => setState(
+                            () => _tag = _tag == tag ? null : tag),
+                      ),
+                    ),
+                ],
+              ),
+            ),
           if (_tab == 0) ...[
             if (tasks.isEmpty)
               AppCard(
@@ -157,7 +182,29 @@ class _TasksScreenState extends State<TasksScreen> {
                 ),
               )
             else ...[
-              if (overdue.isNotEmpty) _group('已逾期', overdue),
+              if (overdue.isNotEmpty)
+                _group(
+                  '已逾期',
+                  overdue,
+                  trailing: GestureDetector(
+                    onTap: () => _postponeOverdue(context),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 9, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFF5252).withOpacity(0.10),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Text(
+                        '全部顺延到明天',
+                        style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFFFF5252)),
+                      ),
+                    ),
+                  ),
+                ),
               if (dueToday.isNotEmpty) _group('今天', dueToday),
               if (dueWeek.isNotEmpty) _group('本周', dueWeek),
               if (later.isNotEmpty) _group('之后', later),
@@ -183,23 +230,34 @@ class _TasksScreenState extends State<TasksScreen> {
     );
   }
 
-  Widget _group(String title, List<Task> list) {
+  Widget _group(String title, List<Task> list, {Widget? trailing}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SectionHeader(title: title, subtitle: '${list.length} 项'),
+        SectionHeader(
+            title: title, subtitle: '${list.length} 项', trailing: trailing),
         ...list.map(_tile),
       ],
     );
   }
 
   Widget _tile(Task t) {
+    final provider = context.read<TaskProvider>();
     return TaskItemWidget(
       task: t,
-      onToggle: () => context.read<TaskProvider>().toggleComplete(t.id),
+      onToggle: () => provider.toggleComplete(t.id),
       onEdit: () => showTaskEditor(context, task: t),
       onDelete: () => _delete(t),
       onFocus: () => context.read<PomodoroProvider>().assignTask(t),
+      onPin: () => provider.togglePin(t.id),
+      onTomorrow: () => provider.setDueDate(
+          t.id, DateTime.now().add(const Duration(days: 1))),
+      onNextWeek: () => provider.setDueDate(
+          t.id, DateTime.now().add(const Duration(days: 7))),
+      onDuplicate: () async {
+        final copy = await provider.duplicateTask(t.id);
+        if (copy != null && mounted) showToast(context, '已复制「${copy.title}」');
+      },
       onSchedule: () => showScheduleEditor(
         context,
         date: t.dueDate ?? DateTime.now(),
@@ -207,6 +265,14 @@ class _TasksScreenState extends State<TasksScreen> {
         taskId: t.id,
       ),
     );
+  }
+
+  Future<void> _postponeOverdue(BuildContext ctx) async {
+    final moved =
+        await ctx.read<TaskProvider>().postponeOverdueToTomorrow();
+    if (moved > 0 && mounted) {
+      showToast(context, '已把 $moved 项逾期任务顺延到明天');
+    }
   }
 
   Future<void> _delete(Task t) async {

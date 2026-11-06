@@ -16,6 +16,7 @@ class TaskProvider extends ChangeNotifier {
   List<Task> get activeTasks {
     final active = _tasks.where((t) => !t.isCompleted).toList();
     active.sort((a, b) {
+      if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
       final cmp = a.priority.rank.compareTo(b.priority.rank);
       if (cmp != 0) return cmp;
       final ad = a.dueDate, bd = b.dueDate;
@@ -49,6 +50,20 @@ class TaskProvider extends ChangeNotifier {
   }
 
   int get activeCount => _tasks.where((t) => !t.isCompleted).length;
+
+  /// 进行中任务里出现过的全部标签(按使用频次降序)
+  List<String> get activeTags {
+    final counter = <String, int>{};
+    for (final t in _tasks) {
+      if (t.isCompleted) continue;
+      for (final tag in t.tags) {
+        counter[tag] = (counter[tag] ?? 0) + 1;
+      }
+    }
+    final tags = counter.keys.toList()
+      ..sort((a, b) => counter[b]!.compareTo(counter[a]!));
+    return tags;
+  }
 
   int completedOn(DateTime day) => _tasks.where((t) {
         if (t.completedAt == null) return false;
@@ -142,6 +157,65 @@ class TaskProvider extends ChangeNotifier {
     _tasks.insert(0, task);
     await _persist();
     notifyListeners();
+  }
+
+  /// 置顶 / 取消置顶
+  Future<void> togglePin(String id) async {
+    final idx = _tasks.indexWhere((t) => t.id == id);
+    if (idx < 0) return;
+    _tasks[idx] = _tasks[idx].copyWith(isPinned: !_tasks[idx].isPinned);
+    await _persist();
+    notifyListeners();
+  }
+
+  /// 调整截止日期(用于「明天」「下周」快捷操作)
+  Future<void> setDueDate(String id, DateTime date) async {
+    final idx = _tasks.indexWhere((t) => t.id == id);
+    if (idx < 0) return;
+    _tasks[idx] = _tasks[idx].copyWith(dueDate: startOfDay(date));
+    await _persist();
+    notifyListeners();
+  }
+
+  /// 把所有逾期任务顺延到明天
+  Future<int> postponeOverdueToTomorrow() async {
+    final tomorrow = startOfDay(DateTime.now().add(const Duration(days: 1)));
+    var count = 0;
+    for (var i = 0; i < _tasks.length; ++i) {
+      final t = _tasks[i];
+      if (!t.isCompleted && t.isOverdue) {
+        _tasks[i] = t.copyWith(dueDate: tomorrow);
+        count++;
+      }
+    }
+    if (count > 0) {
+      await _persist();
+      notifyListeners();
+    }
+    return count;
+  }
+
+  /// 复制一份任务(子任务进度重置)
+  Future<Task?> duplicateTask(String id) async {
+    final idx = _tasks.indexWhere((t) => t.id == id);
+    if (idx < 0) return null;
+    final t = _tasks[idx];
+    final copy = Task(
+      title: '${t.title} (副本)',
+      notes: t.notes,
+      priority: t.priority,
+      estimatedPomodoros: t.estimatedPomodoros,
+      dueDate: t.dueDate,
+      tags: List<String>.from(t.tags),
+      subtasks: t.subtasks
+          .map((s) => s.copyWith(isDone: false))
+          .toList(growable: false),
+      repeat: t.repeat,
+    );
+    _tasks.insert(0, copy);
+    await _persist();
+    notifyListeners();
+    return copy;
   }
 
   /// 勾选 / 取消子任务

@@ -82,75 +82,84 @@ class _TimerRing extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 240,
-      height: 240,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Container(
-            width: 240,
-            height: 240,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: theme.primary.withOpacity(0.04),
-            ),
-          ),
-          SizedBox(
-            width: 212,
-            height: 212,
-            child: CircularProgressIndicator(
-              value: pomo.progress,
-              strokeWidth: 9,
-              backgroundColor: theme.primary.withOpacity(0.10),
-              valueColor: AlwaysStoppedAnimation<Color>(
-                pomo.phase == TimerPhase.work
-                    ? theme.primary
-                    : theme.accent,
-              ),
-            ),
-          ),
-          Column(
-            mainAxisSize: MainAxisSize.min,
+    // 仅剩余时间/进度随秒刷新, 其余信息由 Provider 状态变化驱动
+    return ValueListenableBuilder<int>(
+      valueListenable: pomo.remainingNotifier,
+      builder: (context, remaining, _) {
+        final total = pomo.phaseTotalSeconds;
+        final progress =
+            total <= 0 ? 0.0 : (1 - remaining / total).clamp(0.0, 1.0);
+        return SizedBox(
+          width: 240,
+          height: 240,
+          child: Stack(
+            alignment: Alignment.center,
             children: [
-              Text(
-                pomo.timeDisplay,
-                style: TextStyle(
-                  fontSize: 46,
-                  fontWeight: FontWeight.w700,
-                  height: 1.1,
-                  letterSpacing: 1.5,
-                  color: theme.foreground,
+              Container(
+                width: 240,
+                height: 240,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: theme.primary.withOpacity(0.04),
                 ),
               ),
-              const SizedBox(height: 4),
-              Row(
+              SizedBox(
+                width: 212,
+                height: 212,
+                child: CircularProgressIndicator(
+                  value: progress,
+                  strokeWidth: 9,
+                  backgroundColor: theme.primary.withOpacity(0.10),
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    pomo.phase == TimerPhase.work
+                        ? theme.primary
+                        : theme.accent,
+                  ),
+                ),
+              ),
+              Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Container(
-                    width: 6,
-                    height: 6,
-                    decoration: BoxDecoration(
-                      color: pomo.isRunning ? theme.primary : theme.muted,
-                      shape: BoxShape.circle,
+                  Text(
+                    pomo.formatSeconds(remaining),
+                    style: TextStyle(
+                      fontSize: 46,
+                      fontWeight: FontWeight.w700,
+                      height: 1.1,
+                      letterSpacing: 1.5,
+                      color: theme.foreground,
                     ),
                   ),
-                  const SizedBox(width: 5),
+                  const SizedBox(height: 4),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          color: pomo.isRunning ? theme.primary : theme.muted,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        pomo.phaseLabel,
+                        style: TextStyle(fontSize: 12, color: theme.muted),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
                   Text(
-                    pomo.phaseLabel,
-                    style: TextStyle(fontSize: 12, color: theme.muted),
+                    '累计 ${pomo.completedWorkCount} 个番茄',
+                    style: TextStyle(fontSize: 10, color: theme.muted),
                   ),
                 ],
               ),
-              const SizedBox(height: 2),
-              Text(
-                '累计 ${pomo.completedWorkCount} 个番茄',
-                style: TextStyle(fontSize: 10, color: theme.muted),
-              ),
             ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

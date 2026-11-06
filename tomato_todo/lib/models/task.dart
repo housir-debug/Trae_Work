@@ -102,6 +102,7 @@ class Task {
   List<String> tags;
   List<Subtask> subtasks;
   RepeatRule repeat;
+  bool isPinned;
   DateTime createdAt;
   DateTime? completedAt;
 
@@ -117,6 +118,7 @@ class Task {
     List<String>? tags,
     List<Subtask>? subtasks,
     this.repeat = RepeatRule.none,
+    this.isPinned = false,
     DateTime? createdAt,
     this.completedAt,
   })  : id = id ?? const Uuid().v4(),
@@ -161,6 +163,7 @@ class Task {
     List<String>? tags,
     List<Subtask>? subtasks,
     RepeatRule? repeat,
+    bool? isPinned,
     DateTime? completedAt,
     bool clearCompletedAt = false,
   }) {
@@ -176,6 +179,7 @@ class Task {
       tags: tags ?? this.tags,
       subtasks: subtasks ?? this.subtasks,
       repeat: repeat ?? this.repeat,
+      isPinned: isPinned ?? this.isPinned,
       createdAt: createdAt,
       completedAt:
           clearCompletedAt ? null : (completedAt ?? this.completedAt),
@@ -194,6 +198,7 @@ class Task {
         'tags': tags,
         'subtasks': subtasks.map((e) => e.toJson()).toList(),
         'repeat': repeat.index,
+        'isPinned': isPinned,
         'createdAt': createdAt.toIso8601String(),
         'completedAt': completedAt?.toIso8601String(),
       };
@@ -217,6 +222,7 @@ class Task {
             [],
         repeat: RepeatRule.values[
             (json['repeat'] as int? ?? 0).clamp(0, 4).toInt()],
+        isPinned: json['isPinned'] as bool? ?? false,
         createdAt: DateTime.parse(json['createdAt'] as String),
         completedAt: json['completedAt'] != null
             ? DateTime.parse(json['completedAt'] as String)

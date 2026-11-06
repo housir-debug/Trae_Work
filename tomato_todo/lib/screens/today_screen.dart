@@ -134,6 +134,17 @@ class TodayScreen extends StatelessWidget {
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                Tooltip(
+                  message: '复制昨日行程',
+                  child: GestureDetector(
+                    onTap: () => _copyYesterday(context),
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 10),
+                      child: Icon(Icons.content_copy,
+                          size: 17, color: theme.muted),
+                    ),
+                  ),
+                ),
                 GestureDetector(
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(
@@ -375,6 +386,19 @@ class TodayScreen extends StatelessWidget {
         height: 40,
         color: theme.foreground.withOpacity(0.08),
       );
+
+  Future<void> _copyYesterday(BuildContext context) async {
+    final now = DateTime.now();
+    final today = startOfDay(now);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final count =
+        await context.read<ScheduleProvider>().copyDay(yesterday, today);
+    if (!context.mounted) return;
+    showToast(
+      context,
+      count == 0 ? '昨天没有可复制的行程' : '已把昨日 $count 项行程复制到今天',
+    );
+  }
 
   Future<void> _confirmDeleteTask(BuildContext context, Task task) async {
     final ok = await showConfirmDialog(context,

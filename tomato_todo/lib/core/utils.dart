@@ -33,9 +33,10 @@ String friendlyDate(DateTime d) {
 
 String shortDate(DateTime d) => DateFormat('M月d日').format(d);
 
-/// 分钟数 -> HH:mm
+/// 分钟数 -> HH:mm (1440 显示为 24:00)
 String timeText(int minutes) {
-  final h = (minutes ~/ 60) % 24;
+  if (minutes >= 24 * 60) return '24:00';
+  final h = minutes ~/ 60;
   final m = minutes % 60;
   return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
 }

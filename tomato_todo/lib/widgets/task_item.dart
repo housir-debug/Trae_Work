@@ -15,6 +15,10 @@ class TaskItemWidget extends StatelessWidget {
   final VoidCallback? onDelete;
   final VoidCallback? onFocus;
   final VoidCallback? onSchedule;
+  final VoidCallback? onPin;
+  final VoidCallback? onTomorrow;
+  final VoidCallback? onNextWeek;
+  final VoidCallback? onDuplicate;
   final bool showDate;
 
   const TaskItemWidget({
@@ -25,6 +29,10 @@ class TaskItemWidget extends StatelessWidget {
     this.onDelete,
     this.onFocus,
     this.onSchedule,
+    this.onPin,
+    this.onTomorrow,
+    this.onNextWeek,
+    this.onDuplicate,
     this.showDate = true,
   });
 
@@ -89,6 +97,12 @@ class TaskItemWidget extends StatelessWidget {
                   runSpacing: 4,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
+                    if (task.isPinned)
+                      TinyBadge(
+                        text: '置顶',
+                        color: theme.primary,
+                        icon: Icons.push_pin_outlined,
+                      ),
                     TinyBadge(
                       text: task.priority.label,
                       color: priorityColor,
@@ -203,6 +217,10 @@ class TaskItemWidget extends StatelessWidget {
               onSelected: (v) {
                 if (v == 'edit') onEdit?.call();
                 if (v == 'schedule') onSchedule?.call();
+                if (v == 'pin') onPin?.call();
+                if (v == 'tomorrow') onTomorrow?.call();
+                if (v == 'nextWeek') onNextWeek?.call();
+                if (v == 'duplicate') onDuplicate?.call();
                 if (v == 'delete') onDelete?.call();
               },
               itemBuilder: (_) => [
@@ -210,6 +228,30 @@ class TaskItemWidget extends StatelessWidget {
                   PopupMenuItem(
                     value: 'edit',
                     child: Text('编辑',
+                        style: TextStyle(fontSize: 13, color: theme.foreground)),
+                  ),
+                if (onPin != null && !task.isCompleted)
+                  PopupMenuItem(
+                    value: 'pin',
+                    child: Text(task.isPinned ? '取消置顶' : '置顶',
+                        style: TextStyle(fontSize: 13, color: theme.foreground)),
+                  ),
+                if (onTomorrow != null && !task.isCompleted)
+                  PopupMenuItem(
+                    value: 'tomorrow',
+                    child: Text('改到明天',
+                        style: TextStyle(fontSize: 13, color: theme.foreground)),
+                  ),
+                if (onNextWeek != null && !task.isCompleted)
+                  PopupMenuItem(
+                    value: 'nextWeek',
+                    child: Text('改到下周',
+                        style: TextStyle(fontSize: 13, color: theme.foreground)),
+                  ),
+                if (onDuplicate != null)
+                  PopupMenuItem(
+                    value: 'duplicate',
+                    child: Text('复制一份',
                         style: TextStyle(fontSize: 13, color: theme.foreground)),
                   ),
                 if (onSchedule != null && !task.isCompleted)

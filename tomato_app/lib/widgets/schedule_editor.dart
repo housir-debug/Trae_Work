@@ -54,6 +54,7 @@ class _ScheduleEditorState extends State<_ScheduleEditor> {
   late int _end;
   late ScheduleCategory _category;
   late String _dateKey;
+  late bool _isDone;
   int? _reminder;
 
   @override
@@ -66,10 +67,11 @@ class _ScheduleEditorState extends State<_ScheduleEditor> {
     final rounded = ((now.hour * 60 + now.minute + 29) ~/ 30) * 30;
     _start = e?.startMinute ??
         widget.initialStart ??
-        rounded.clamp(6 * 60, 22 * 60).toInt();
+        rounded.clamp(0, 22 * 60).toInt();
     _end = e?.endMinute ?? (_start + 60).clamp(_start + 15, 24 * 60).toInt();
     _category = e?.category ?? ScheduleCategory.work;
     _dateKey = e?.dateKey ?? dateKey(widget.initialDate ?? now);
+    _isDone = e?.isDone ?? false;
     _reminder = e?.reminderMinutes;
   }
 
@@ -114,6 +116,8 @@ class _ScheduleEditorState extends State<_ScheduleEditor> {
     final theme = context.watch<SettingsProvider>().currentTheme;
     final isEditing = widget.existing != null;
     final day = DateTime.tryParse(_dateKey) ?? DateTime.now();
+    final defaultReminder =
+        context.watch<SettingsProvider>().settings.defaultEventReminder;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -223,7 +227,10 @@ class _ScheduleEditorState extends State<_ScheduleEditor> {
           spacing: 8,
           runSpacing: 6,
           children: [
-            _reminderChip('默认', null),
+            _reminderChip(
+              defaultReminder <= 0 ? '默认(准时)' : '默认($defaultReminder分)',
+              null,
+            ),
             _reminderChip('不提醒', -1),
             _reminderChip('准时', 0),
             _reminderChip('提前5分', 5),
@@ -232,6 +239,22 @@ class _ScheduleEditorState extends State<_ScheduleEditor> {
             _reminderChip('提前30分', 30),
           ],
         ),
+        const SizedBox(height: 8),
+        if (isEditing)
+          Row(
+            children: [
+              Icon(Icons.task_alt, size: 16, color: theme.primary),
+              const SizedBox(width: 6),
+              Text('标记为已完成',
+                  style: TextStyle(fontSize: 12, color: theme.foreground)),
+              const Spacer(),
+              Switch(
+                value: _isDone,
+                activeColor: theme.primary,
+                onChanged: (v) => setState(() => _isDone = v),
+              ),
+            ],
+          ),
         const SizedBox(height: 12),
         TextField(
           controller: _note,
@@ -248,10 +271,20 @@ class _ScheduleEditorState extends State<_ScheduleEditor> {
                   final ok = await showConfirmDialog(context,
                       title: '删除这个时间块?', danger: true, confirmText: '删除');
                   if (!ok || !context.mounted) return;
-                  await context
+                  final removed = await context
                       .read<ScheduleProvider>()
                       .delete(widget.existing!.id);
-                  if (context.mounted) Navigator.pop(context);
+                  if (!context.mounted) return;
+                  Navigator.pop(context);
+                  if (removed != null) {
+                    showUndoToast(
+                      context,
+                      '已删除「${removed.title}」',
+                      onUndo: () => context
+                          .read<ScheduleProvider>()
+                          .restore(removed),
+                    );
+                  }
                 },
                 child: const Text('删除',
                     style: TextStyle(color: Color(0xFFFF5252))),
@@ -326,6 +359,7 @@ class _ScheduleEditorState extends State<_ScheduleEditor> {
       endMinute: _end,
       category: _category,
       note: _note.text.trim(),
+      isDone: _isDone,
       reminderMinutes: _reminder,
       clearReminder: _reminder == null,
     );
