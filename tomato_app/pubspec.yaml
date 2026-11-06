@@ -1,7 +1,7 @@
 name: tomato_todo
-description: 番茄钟 + 待办事项 全能助手,复刻番茄Todo,全部功能免费
+description: 时光秘书 - 专属个人的时间、待办、习惯、目标管理助手
 publish_to: 'none'
-version: 1.0.0+1
+version: 2.0.0+2
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -15,6 +15,7 @@ dependencies:
   intl: ^0.19.0
   uuid: ^4.2.2
   image_picker: ^1.0.7
+  crypto: ^3.0.3
 
 dev_dependencies:
   flutter_test:
@@ -23,7 +24,3 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-
-  assets:
-    - assets/images/
-    - assets/sounds/

@@ -6,19 +6,28 @@ class AppSettings {
   int longBreakDuration;
   int longBreakInterval; // 每几个番茄后长休息
 
-  // 界面
+  // 行为
   bool autoStartNext; // 完成后自动开始下一个
   bool showNotification;
   bool enableVibrate;
 
   // 声音
-  String tickSound; // 滴答声(占位)
-  String completeSound; // 完成提示音
+  String tickSound;
+  String completeSound;
 
   // 主题
-  int themeIndex; // 内置主题索引
-  String? customBackgroundPath; // 自定义背景图路径(null 用主题色)
-  double backgroundOpacity; // 背景遮罩透明度 0-1
+  int themeIndex;
+  String? customBackgroundPath; // grad_xx 或本地图片路径
+  double backgroundOpacity;
+
+  // 目标
+  int dailyFocusGoal; // 每日专注目标(分钟)
+  int dailyTaskGoal; // 每日完成任务目标(个)
+
+  // 安全
+  bool appLockEnabled;
+  String? pinHash;
+  String? pinSalt;
 
   AppSettings({
     this.workDuration = 25,
@@ -33,6 +42,11 @@ class AppSettings {
     this.themeIndex = 0,
     this.customBackgroundPath,
     this.backgroundOpacity = 0.55,
+    this.dailyFocusGoal = 120,
+    this.dailyTaskGoal = 5,
+    this.appLockEnabled = false,
+    this.pinHash,
+    this.pinSalt,
   });
 
   AppSettings copyWith({
@@ -47,7 +61,14 @@ class AppSettings {
     String? completeSound,
     int? themeIndex,
     String? customBackgroundPath,
+    bool clearBackground = false,
     double? backgroundOpacity,
+    int? dailyFocusGoal,
+    int? dailyTaskGoal,
+    bool? appLockEnabled,
+    String? pinHash,
+    String? pinSalt,
+    bool clearPin = false,
   }) {
     return AppSettings(
       workDuration: workDuration ?? this.workDuration,
@@ -60,8 +81,15 @@ class AppSettings {
       tickSound: tickSound ?? this.tickSound,
       completeSound: completeSound ?? this.completeSound,
       themeIndex: themeIndex ?? this.themeIndex,
-      customBackgroundPath: customBackgroundPath ?? this.customBackgroundPath,
+      customBackgroundPath: clearBackground
+          ? null
+          : (customBackgroundPath ?? this.customBackgroundPath),
       backgroundOpacity: backgroundOpacity ?? this.backgroundOpacity,
+      dailyFocusGoal: dailyFocusGoal ?? this.dailyFocusGoal,
+      dailyTaskGoal: dailyTaskGoal ?? this.dailyTaskGoal,
+      appLockEnabled: appLockEnabled ?? this.appLockEnabled,
+      pinHash: clearPin ? null : (pinHash ?? this.pinHash),
+      pinSalt: clearPin ? null : (pinSalt ?? this.pinSalt),
     );
   }
 
@@ -78,6 +106,11 @@ class AppSettings {
         'themeIndex': themeIndex,
         'customBackgroundPath': customBackgroundPath,
         'backgroundOpacity': backgroundOpacity,
+        'dailyFocusGoal': dailyFocusGoal,
+        'dailyTaskGoal': dailyTaskGoal,
+        'appLockEnabled': appLockEnabled,
+        'pinHash': pinHash,
+        'pinSalt': pinSalt,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
@@ -92,6 +125,12 @@ class AppSettings {
         completeSound: json['completeSound'] as String? ?? 'bell',
         themeIndex: json['themeIndex'] as int? ?? 0,
         customBackgroundPath: json['customBackgroundPath'] as String?,
-        backgroundOpacity: (json['backgroundOpacity'] as num?)?.toDouble() ?? 0.55,
+        backgroundOpacity:
+            (json['backgroundOpacity'] as num?)?.toDouble() ?? 0.55,
+        dailyFocusGoal: json['dailyFocusGoal'] as int? ?? 120,
+        dailyTaskGoal: json['dailyTaskGoal'] as int? ?? 5,
+        appLockEnabled: json['appLockEnabled'] as bool? ?? false,
+        pinHash: json['pinHash'] as String?,
+        pinSalt: json['pinSalt'] as String?,
       );
 }

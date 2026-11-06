@@ -1,193 +1,374 @@
-// widgets/task_input.dart - 新增/编辑任务输入框
+// widgets/task_input.dart - 新建/编辑待办 与 快速录入
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
+import '../core/utils.dart';
 import '../models/task.dart';
-import '../providers/task_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/task_provider.dart';
+import '../theme/backgrounds.dart';
+import 'ui.dart';
 
-class TaskInputWidget extends StatefulWidget {
-  const TaskInputWidget({super.key});
-
-  @override
-  State<TaskInputWidget> createState() => _TaskInputWidgetState();
+Future<void> showTaskEditor(BuildContext context, {Task? task}) async {
+  final result = await showAppSheet<Task>(
+    context,
+    child: _TaskEditor(existing: task),
+  );
+  if (result == null || !context.mounted) return;
+  final provider = context.read<TaskProvider>();
+  if (task == null) {
+    await provider.addTask(result);
+    if (context.mounted) showToast(context, '已创建待办');
+  } else {
+    await provider.updateTask(result);
+    if (context.mounted) showToast(context, '已更新待办');
+  }
 }
 
-class _TaskInputWidgetState extends State<TaskInputWidget> {
-  final _titleCtrl = TextEditingController();
-  TaskPriority _priority = TaskPriority.medium;
-  int _estimatedPomodoros = 1;
+class _TaskEditor extends StatefulWidget {
+  final Task? existing;
+
+  const _TaskEditor({this.existing});
+
+  @override
+  State<_TaskEditor> createState() => _TaskEditorState();
+}
+
+class _TaskEditorState extends State<_TaskEditor> {
+  late final TextEditingController _title;
+  late final TextEditingController _notes;
+  late final TextEditingController _tags;
+  late TaskPriority _priority;
+  late int _estimate;
+  DateTime? _dueDate;
+
+  @override
+  void initState() {
+    super.initState();
+    final t = widget.existing;
+    _title = TextEditingController(text: t?.title ?? '');
+    _notes = TextEditingController(text: t?.notes ?? '');
+    _tags = TextEditingController(text: t?.tags.join(',') ?? '');
+    _priority = t?.priority ?? TaskPriority.medium;
+    _estimate = t?.estimatedPomodoros ?? 2;
+    _dueDate = t?.dueDate;
+  }
 
   @override
   void dispose() {
-    _titleCtrl.dispose();
+    _title.dispose();
+    _notes.dispose();
+    _tags.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final settings = context.watch<SettingsProvider>();
-    final theme = settings.currentTheme;
-    final taskProv = context.read<TaskProvider>();
+    final theme = context.watch<SettingsProvider>().currentTheme;
+    final isEditing = widget.existing != null;
 
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: theme.cardBackground.withOpacity(0.95),
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          isEditing ? '编辑待办' : '新建待办',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: theme.foreground,
           ),
-        ],
-      ),
-      child: Column(
-        children: [
-          TextField(
-            controller: _titleCtrl,
-            style: TextStyle(color: theme.foreground),
-            decoration: InputDecoration(
-              hintText: '添加新任务...',
-              hintStyle:
-                  TextStyle(color: theme.foreground.withOpacity(0.4)),
-              border: InputBorder.none,
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        ),
+        const SizedBox(height: 14),
+        TextField(
+          controller: _title,
+          autofocus: !isEditing,
+          maxLength: 60,
+          style: TextStyle(fontSize: 14, color: theme.foreground),
+          decoration: appInput(
+            context: context,
+            hint: '要做什么? 例如: 完成接口文档',
+          ).copyWith(counterText: ''),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _notes,
+          maxLines: 2,
+          style: TextStyle(fontSize: 13, color: theme.foreground),
+          decoration: appInput(context: context, hint: '备注 / 具体步骤(可选)'),
+        ),
+        const SizedBox(height: 14),
+        Text('优先级', style: TextStyle(fontSize: 12, color: theme.muted)),
+        const SizedBox(height: 6),
+        Row(
+          children: TaskPriority.values.map((p) {
+            final color = p == TaskPriority.high
+                ? const Color(0xFFFF5252)
+                : p == TaskPriority.medium
+                    ? const Color(0xFFFFA726)
+                    : const Color(0xFF6BCB9D);
+            return Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: PillChip(
+                label: '${p.label}优先级',
+                color: color,
+                selected: _priority == p,
+                onTap: () => setState(() => _priority = p),
+              ),
+            );
+          }).toList(),
+        ),
+        const SizedBox(height: 14),
+        Text('截止日期', style: TextStyle(fontSize: 12, color: theme.muted)),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          children: [
+            PillChip(
+              label: '无期限',
+              selected: _dueDate == null,
+              onTap: () => setState(() => _dueDate = null),
             ),
-            onSubmitted: (_) => _submit(taskProv),
+            PillChip(
+              label: '今天',
+              selected: _dueDate != null && isSameDate(_dueDate!, DateTime.now()),
+              onTap: () => setState(() => _dueDate = startOfDay(DateTime.now())),
+            ),
+            PillChip(
+              label: '明天',
+              selected: _dueDate != null &&
+                  isSameDate(_dueDate!,
+                      DateTime.now().add(const Duration(days: 1))),
+              onTap: () => setState(() => _dueDate =
+                  startOfDay(DateTime.now().add(const Duration(days: 1)))),
+            ),
+            PillChip(
+              label: _dueDate == null ||
+                      isSameDate(_dueDate!, DateTime.now()) ||
+                      isSameDate(_dueDate!,
+                          DateTime.now().add(const Duration(days: 1)))
+                  ? '选择日期'
+                  : shortDate(_dueDate!),
+              icon: Icons.calendar_today_outlined,
+              selected: false,
+              onTap: () async {
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate: _dueDate ?? DateTime.now(),
+                  firstDate: DateTime.now().subtract(const Duration(days: 365)),
+                  lastDate: DateTime.now().add(const Duration(days: 365 * 3)),
+                );
+                if (picked != null) setState(() => _dueDate = startOfDay(picked));
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Text('预计番茄数', style: TextStyle(fontSize: 12, color: theme.muted)),
+            const Spacer(),
+            _Stepper(
+              value: _estimate,
+              min: 1,
+              max: 20,
+              onChanged: (v) => setState(() => _estimate = v),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _tags,
+          style: TextStyle(fontSize: 13, color: theme.foreground),
+          decoration: appInput(
+            context: context,
+            hint: '标签, 用逗号分隔 (如: 工作,紧急)',
+            prefix: Icon(Icons.tag, size: 16, color: theme.muted),
           ),
-          Row(
-            children: [
-              // 优先级选择
-              _PriorityChip(
-                label: '高',
-                color: Colors.redAccent,
-                selected: _priority == TaskPriority.high,
-                onTap: () => setState(() => _priority = TaskPriority.high),
+        ),
+        const SizedBox(height: 20),
+        Row(
+          children: [
+            Expanded(
+              child: TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text('取消', style: TextStyle(color: theme.muted)),
               ),
-              const SizedBox(width: 6),
-              _PriorityChip(
-                label: '中',
-                color: Colors.orangeAccent,
-                selected: _priority == TaskPriority.medium,
-                onTap: () => setState(() => _priority = TaskPriority.medium),
-              ),
-              const SizedBox(width: 6),
-              _PriorityChip(
-                label: '低',
-                color: Colors.grey,
-                selected: _priority == TaskPriority.low,
-                onTap: () => setState(() => _priority = TaskPriority.low),
-              ),
-              const Spacer(),
-              // 预估番茄数
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: theme.primary.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text('🍅', style: TextStyle(fontSize: 14)),
-                    const SizedBox(width: 4),
-                    DropdownButtonHideUnderline(
-                      child: DropdownButton<int>(
-                        value: _estimatedPomodoros,
-                        isDense: true,
-                        style: TextStyle(
-                            color: theme.foreground, fontSize: 13),
-                        items: List.generate(8, (i) => i + 1)
-                            .map((n) => DropdownMenuItem(
-                                  value: n,
-                                  child: Text('$n 个'),
-                                ))
-                            .toList(),
-                        onChanged: (v) {
-                          if (v != null) {
-                            setState(() => _estimatedPomodoros = v);
-                          }
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              // 添加按钮
-              ElevatedButton(
-                onPressed: () => _submit(taskProv),
-                style: ElevatedButton.styleFrom(
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              flex: 2,
+              child: FilledButton(
+                style: FilledButton.styleFrom(
                   backgroundColor: theme.primary,
-                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 13),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  elevation: 0,
                 ),
-                child: const Text('添加'),
+                onPressed: _save,
+                child: Text(isEditing ? '保存修改' : '创建待办'),
               ),
-            ],
-          ),
-        ],
-      ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
-  void _submit(TaskProvider taskProv) {
-    final title = _titleCtrl.text.trim();
-    if (title.isEmpty) return;
-    taskProv.addTask(Task(
+  void _save() {
+    final title = _title.text.trim();
+    if (title.isEmpty) {
+      showToast(context, '请填写待办标题');
+      return;
+    }
+    final tags = _tags.text
+        .split(RegExp(r'[,，\s]+'))
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toSet()
+        .toList();
+    final base = widget.existing ??
+        Task(title: title, estimatedPomodoros: _estimate);
+    final result = base.copyWith(
       title: title,
+      notes: _notes.text.trim(),
       priority: _priority,
-      estimatedPomodoros: _estimatedPomodoros,
-    ));
-    _titleCtrl.clear();
-    setState(() {
-      _priority = TaskPriority.medium;
-      _estimatedPomodoros = 1;
-    });
+      estimatedPomodoros: _estimate,
+      dueDate: _dueDate,
+      clearDueDate: _dueDate == null,
+      tags: tags,
+    );
+    Navigator.pop(context, result);
   }
 }
 
-class _PriorityChip extends StatelessWidget {
-  final String label;
-  final Color color;
-  final bool selected;
-  final VoidCallback onTap;
+class _Stepper extends StatelessWidget {
+  final int value;
+  final int min;
+  final int max;
+  final ValueChanged<int> onChanged;
 
-  const _PriorityChip({
-    required this.label,
-    required this.color,
-    required this.selected,
-    required this.onTap,
+  const _Stepper({
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.onChanged,
   });
 
   @override
   Widget build(BuildContext context) {
+    final theme = context.watch<SettingsProvider>().currentTheme;
+    return Row(
+      children: [
+        _btn(Icons.remove, () {
+          if (value > min) onChanged(value - 1);
+        }, theme),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: Text('$value',
+              style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: theme.foreground)),
+        ),
+        _btn(Icons.add, () {
+          if (value < max) onChanged(value + 1);
+        }, theme),
+      ],
+    );
+  }
+
+  Widget _btn(IconData icon, VoidCallback onTap, ThemeDef theme) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        width: 28,
+        height: 28,
         decoration: BoxDecoration(
-          color: selected ? color : color.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(14),
+          color: theme.primary.withOpacity(0.10),
+          borderRadius: BorderRadius.circular(8),
         ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: selected ? Colors.white : color,
-            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-          ),
-        ),
+        child: Icon(icon, size: 16, color: theme.primary),
       ),
     );
+  }
+}
+
+/// 今日页的快速录入
+class QuickTaskInput extends StatefulWidget {
+  const QuickTaskInput({super.key});
+
+  @override
+  State<QuickTaskInput> createState() => _QuickTaskInputState();
+}
+
+class _QuickTaskInputState extends State<QuickTaskInput> {
+  final _controller = TextEditingController();
+  bool _busy = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.watch<SettingsProvider>().currentTheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 6),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _controller,
+              textInputAction: TextInputAction.done,
+              style: TextStyle(fontSize: 13, color: theme.foreground),
+              decoration: appInput(
+                context: context,
+                hint: '快速记录一个待办…',
+                dense: true,
+                prefix: Icon(Icons.add_circle_outline,
+                    size: 17, color: theme.primary),
+              ),
+              onSubmitted: (_) => _submit(),
+            ),
+          ),
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: _submit,
+            child: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: theme.primary,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: _busy
+                  ? const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.arrow_upward, color: Colors.white, size: 18),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _submit() async {
+    final text = _controller.text.trim();
+    if (text.isEmpty || _busy) return;
+    setState(() => _busy = true);
+    await context.read<TaskProvider>().addTask(Task(title: text));
+    _controller.clear();
+    if (mounted) {
+      setState(() => _busy = false);
+      showToast(context, '已加入待办');
+    }
   }
 }

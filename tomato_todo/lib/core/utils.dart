@@ -1,0 +1,70 @@
+// core/utils.dart - 通用日期/文本工具
+import 'package:intl/intl.dart';
+
+/// 统一的日期键: yyyy-MM-dd
+String dateKey(DateTime d) =>
+    '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+DateTime startOfDay(DateTime d) => DateTime(d.year, d.month, d.day);
+
+DateTime startOfWeek(DateTime d) =>
+    startOfDay(d.subtract(Duration(days: d.weekday - 1)));
+
+bool isSameDate(DateTime a, DateTime b) =>
+    a.year == b.year && a.month == b.month && a.day == b.day;
+
+const List<String> kWeekdayCN = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+
+String weekdayShort(DateTime d) => ['一', '二', '三', '四', '五', '六', '日'][d.weekday - 1];
+
+String weekdayFull(DateTime d) => kWeekdayCN[d.weekday - 1];
+
+/// 友好日期: 今天 / 明天 / 昨天 / 月日
+String friendlyDate(DateTime d) {
+  final today = startOfDay(DateTime.now());
+  final target = startOfDay(d);
+  final diff = target.difference(today).inDays;
+  if (diff == 0) return '今天';
+  if (diff == 1) return '明天';
+  if (diff == -1) return '昨天';
+  if (diff == 2) return '后天';
+  return '${d.month}月${d.day}日';
+}
+
+String shortDate(DateTime d) => DateFormat('M月d日').format(d);
+
+/// 分钟数 -> HH:mm
+String timeText(int minutes) {
+  final h = (minutes ~/ 60) % 24;
+  final m = minutes % 60;
+  return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
+}
+
+/// HH:mm -> 分钟数, 解析失败返回 null
+int? parseTimeText(String text) {
+  final parts = text.split(':');
+  if (parts.length != 2) return null;
+  final h = int.tryParse(parts[0]);
+  final m = int.tryParse(parts[1]);
+  if (h == null || m == null || h < 0 || h > 23 || m < 0 || m > 59) return null;
+  return h * 60 + m;
+}
+
+/// 分钟数 -> 时长描述
+String durationText(int minutes) {
+  if (minutes < 60) return '$minutes 分钟';
+  final h = minutes ~/ 60;
+  final m = minutes % 60;
+  return m == 0 ? '$h 小时' : '$h 小时 $m 分';
+}
+
+String greetingByHour() {
+  final h = DateTime.now().hour;
+  if (h < 6) return '夜深了';
+  if (h < 9) return '早安';
+  if (h < 12) return '上午好';
+  if (h < 14) return '午安';
+  if (h < 18) return '下午好';
+  if (h < 23) return '晚上好';
+  return '夜深了';
+}

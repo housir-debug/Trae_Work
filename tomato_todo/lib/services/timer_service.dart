@@ -9,15 +9,27 @@ enum TimerState { idle, running, paused }
 enum TimerPhase { work, shortBreak, longBreak }
 
 class TimerService {
-  final AppSettings settings;
+  AppSettings settings;
   final void Function(PomodoroRecord record)? onPhaseComplete;
   final void Function(TimerPhase phase)? onPhaseChange;
+  final void Function()? onTick;
 
   TimerService({
     required this.settings,
     this.onPhaseComplete,
     this.onPhaseChange,
-  });
+    this.onTick,
+  }) {
+    _remainingSeconds = _phaseTotalSeconds();
+  }
+
+  /// 更新设置; 时长变化且处于空闲时重置剩余时间
+  void applySettings(AppSettings s, {bool resetDuration = false}) {
+    settings = s;
+    if (resetDuration && _state == TimerState.idle) {
+      _remainingSeconds = _phaseTotalSeconds();
+    }
+  }
 
   TimerState _state = TimerState.idle;
   TimerPhase _phase = TimerPhase.work;
@@ -62,15 +74,15 @@ class TimerService {
 
   void start() {
     if (_state == TimerState.running) return;
-
-    if (_remainingSeconds == 0) {
+    if (_remainingSeconds <= 0) {
       _remainingSeconds = _phaseTotalSeconds();
     }
     _phaseStart = DateTime.now();
     _state = TimerState.running;
-
+    _tick?.cancel();
     _tick = Timer.periodic(const Duration(seconds: 1), (_) {
       _remainingSeconds--;
+      onTick?.call();
       if (_remainingSeconds <= 0) {
         _phaseComplete();
       }
@@ -97,6 +109,14 @@ class TimerService {
   }
 
   void skipPhase() {
+    if (_state != TimerState.running && _phase == TimerPhase.work) {
+      // 未开始的专注跳过不记录
+      _phase = _nextPhase();
+      _remainingSeconds = _phaseTotalSeconds();
+      _state = TimerState.idle;
+      onPhaseChange?.call(_phase);
+      return;
+    }
     _phaseComplete();
   }
 
@@ -123,13 +143,13 @@ class TimerService {
       completedAt: now,
     );
 
-    onPhaseComplete?.call(record);
-
-    if (_phase == TimerPhase.work) {
+    final wasWork = _phase == TimerPhase.work;
+    if (wasWork) {
       _completedWorkCount++;
     }
 
-    // 决定下一阶段
+    onPhaseComplete?.call(record);
+
     _phase = _nextPhase();
     _remainingSeconds = _phaseTotalSeconds();
     _state = TimerState.idle;
@@ -144,7 +164,6 @@ class TimerService {
       }
       return TimerPhase.shortBreak;
     }
-    // 休息结束 -> 工作
     return TimerPhase.work;
   }
 
@@ -160,8 +179,9 @@ class TimerService {
   }
 
   String formatTime(int seconds) {
-    final m = seconds ~/ 60;
-    final s = seconds % 60;
-    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+    final s = seconds < 0 ? 0 : seconds;
+    final m = s ~/ 60;
+    final r = s % 60;
+    return '${m.toString().padLeft(2, '0')}:${r.toString().padLeft(2, '0')}';
   }
 }

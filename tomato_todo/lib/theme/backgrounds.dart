@@ -24,6 +24,12 @@ class ThemeDef {
         primary: primary,
         secondary: accent,
       );
+
+  bool get isDark => background.computeLuminance() < 0.5;
+
+  Color get muted => foreground.withOpacity(isDark ? 0.55 : 0.45);
+
+  Color get card => cardBackground.withOpacity(isDark ? 0.92 : 0.88);
 }
 
 /// 全部内置主题 - 自由切换,无付费墙

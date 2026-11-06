@@ -1,185 +1,134 @@
-// widgets/heatmap_calendar.dart - 周热力图日历
+// widgets/heatmap_calendar.dart - 活动热力图
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import '../models/pomodoro_record.dart';
-import '../providers/pomodoro_provider.dart';
-import '../providers/settings_provider.dart';
+
+import '../core/utils.dart';
 
 class HeatmapCalendar extends StatelessWidget {
-  const HeatmapCalendar({super.key});
+  final Map<String, int> values;
+  final Color baseColor;
+  final int weeks;
+
+  const HeatmapCalendar({
+    super.key,
+    required this.values,
+    required this.baseColor,
+    this.weeks = 12,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final pomo = context.watch<PomodoroProvider>();
-    final settings = context.watch<SettingsProvider>();
-    final theme = settings.currentTheme;
+    final today = startOfDay(DateTime.now());
+    final start = startOfWeek(today)
+        .subtract(Duration(days: (weeks - 1) * 7));
+    final maxValue = values.values.isEmpty
+        ? 0
+        : values.values.reduce((a, b) => a > b ? a : b);
 
-    // 统计最近 12 周每天的工作番茄数
-    final today = DateTime.now();
-    final startOfCalendar = today.subtract(const Duration(days: 7 * 12 - 1));
-
-    final Map<String, int> dailyWork = {};
-    for (final r in pomo.records) {
-      if (r.type != PomodoroType.work) continue;
-      if (r.completedAt.isBefore(startOfCalendar)) continue;
-      final key = _dateKey(r.completedAt);
-      dailyWork[key] = (dailyWork[key] ?? 0) + 1;
+    int level(String key) {
+      final v = values[key] ?? 0;
+      if (v <= 0) return 0;
+      if (maxValue <= 0) return 1;
+      final l = (v / maxValue * 4).ceil();
+      return l.clamp(1, 4).toInt();
     }
 
-    // 构造 12 周 x 7 天 网格
-    final weeks = 12;
-    final daysPerWeek = 7;
-
-    // 调整起始日到周日
-    final dow = startOfCalendar.weekday; // 1=Mon 7=Sun
-    final offset = (7 - dow) % 7;
-    final adjustedStart =
-        startOfCalendar.subtract(Duration(days: offset));
-
-    final cells = List<int>.filled(weeks * daysPerWeek, 0);
-    for (int d = 0; d < weeks * daysPerWeek; ++d) {
-      final date = adjustedStart.add(Duration(days: d));
-      cells[d] = dailyWork[_dateKey(date)] ?? 0;
+    Color cellColor(int lv) {
+      if (lv == 0) return baseColor.withOpacity(0.06);
+      return baseColor.withOpacity(0.22 + 0.18 * lv);
     }
-
-    final maxVal = cells.isEmpty
-        ? 1
-        : cells.fold<int>(0, (m, v) => v > m ? v : m);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          '近 12 周番茄热力图',
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w600,
-            color: theme.foreground,
-          ),
-        ),
-        const SizedBox(height: 12),
-        // 星期标签行
-        Row(
-          children: [
-            const SizedBox(width: 22),
-            for (final w in const ['一', '二', '三', '四', '五', '六', '日'])
-              Expanded(
-                child: Text(w,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                        fontSize: 10,
-                        color: theme.foreground.withOpacity(0.5))),
-              ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        // 网格
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 月份标签(简化:仅标注每 2 周)
-            SizedBox(
-              width: 20,
-              child: Column(
-                children: [
-                  for (int w = 0; w < weeks; ++w) ...[
-                    SizedBox(
-                      height: 14 * daysPerWeek + 2 * (daysPerWeek - 1),
-                      child: w % 2 == 0
-                          ? Align(
-                              alignment: Alignment.centerRight,
-                              child: Text(
-                                _monthLabel(adjustedStart, w * 7),
-                                style: TextStyle(
-                                    fontSize: 9,
-                                    color:
-                                        theme.foreground.withOpacity(0.5)),
-                              ),
-                            )
-                          : null,
+            Column(
+              children: [
+                for (int i = 0; i < 7; ++i)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 1.5),
+                    child: Text(
+                      i == 0 ? '一' : (i == 6 ? '日' : ' '),
+                      style: TextStyle(
+                          fontSize: 9,
+                          color: baseColor.withOpacity(0.55)),
                     ),
-                  ],
-                ],
-              ),
+                  ),
+              ],
             ),
+            const SizedBox(width: 4),
             Expanded(
               child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   for (int w = 0; w < weeks; ++w)
-                    Expanded(
-                      child: Column(
-                        children: [
-                          for (int d = 0; d < daysPerWeek; ++d) ...[
-                            _dayCell(
-                              cells[w * daysPerWeek + d],
-                              maxVal,
-                              theme.primary,
+                    Column(
+                      children: [
+                        for (int d = 0; d < 7; ++d)
+                          Padding(
+                            padding: const EdgeInsets.all(1.5),
+                            child: _Cell(
+                              color: cellColor(level(
+                                  dateKey(start.add(Duration(days: w * 7 + d))))),
+                              future: start
+                                  .add(Duration(days: w * 7 + d))
+                                  .isAfter(today),
                             ),
-                            if (d < daysPerWeek - 1)
-                              const SizedBox(height: 2),
-                          ],
-                        ],
-                      ),
+                          ),
+                      ],
                     ),
                 ],
               ),
             ),
           ],
         ),
-        const SizedBox(height: 8),
-        // 图例
+        const SizedBox(height: 10),
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
-            const Text('少', style: TextStyle(fontSize: 10)),
+            Text('少',
+                style:
+                    TextStyle(fontSize: 9, color: baseColor.withOpacity(0.5))),
             const SizedBox(width: 4),
-            for (int i = 0; i < 5; ++i) ...[
+            for (int i = 0; i < 5; ++i)
               Container(
-                width: 12,
-                height: 12,
-                color: _levelColor(i, 4, theme.primary),
+                width: 10,
+                height: 10,
+                margin: const EdgeInsets.symmetric(horizontal: 1.5),
+                decoration: BoxDecoration(
+                  color: i == 0
+                      ? baseColor.withOpacity(0.06)
+                      : baseColor.withOpacity(0.22 + 0.18 * i),
+                  borderRadius: BorderRadius.circular(3),
+                ),
               ),
-              const SizedBox(width: 2),
-            ],
             const SizedBox(width: 4),
-            const Text('多', style: TextStyle(fontSize: 10)),
+            Text('多',
+                style:
+                    TextStyle(fontSize: 9, color: baseColor.withOpacity(0.5))),
           ],
         ),
       ],
     );
   }
+}
 
-  Widget _dayCell(int count, int max, Color primary) {
+class _Cell extends StatelessWidget {
+  final Color color;
+  final bool future;
+
+  const _Cell({required this.color, required this.future});
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      width: 14,
-      height: 14,
+      width: 13,
+      height: 13,
       decoration: BoxDecoration(
-        color: _cellColor(count, max, primary),
+        color: future ? Colors.transparent : color,
         borderRadius: BorderRadius.circular(3),
       ),
-      child: Tooltip(
-        message: count > 0 ? '$count 个番茄' : '无',
-        child: const SizedBox.expand(),
-      ),
     );
-  }
-
-  Color _cellColor(int count, int max, Color primary) {
-    if (count == 0) return Colors.white.withOpacity(0.15);
-    final level = (count / max * 4).clamp(0, 4).toInt();
-    return _levelColor(level, 4, primary);
-  }
-
-  Color _levelColor(int level, int maxLevel, Color primary) {
-    final t = (level + 1) / (maxLevel + 1);
-    return primary.withOpacity(0.15 + t * 0.85);
-  }
-
-  String _dateKey(DateTime d) =>
-      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
-
-  String _monthLabel(DateTime start, int dayOffset) {
-    final d = start.add(Duration(days: dayOffset));
-    return '${d.month}月';
   }
 }

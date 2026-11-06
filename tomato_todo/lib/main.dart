@@ -1,48 +1,52 @@
-// main.dart - 入口 & MaterialApp & 背景 & 底部导航
-import 'dart:async';
+// main.dart - 时光秘书 入口 / 主题 / 背景 / 底部导航
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'models/app_settings.dart';
-import 'models/task.dart';
-import 'models/pomodoro_record.dart';
+import 'providers/goal_provider.dart';
+import 'providers/habit_provider.dart';
+import 'providers/journal_provider.dart';
 import 'providers/pomodoro_provider.dart';
+import 'providers/schedule_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/task_provider.dart';
-import 'screens/home_screen.dart';
+import 'screens/goals_screen.dart';
+import 'screens/habits_screen.dart';
+import 'screens/lock_screen.dart';
 import 'screens/stats_screen.dart';
-import 'screens/settings_screen.dart';
+import 'screens/tasks_screen.dart';
+import 'screens/today_screen.dart';
 import 'services/storage_service.dart';
-import 'services/timer_service.dart';
 import 'theme/backgrounds.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // 强制竖屏(手机应用体验)
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
-  // 初始化本地存储
   await StorageService.instance.init();
-
-  runApp(const TomatoTodoApp());
+  runApp(const ShiguangApp());
 }
 
-class TomatoTodoApp extends StatefulWidget {
-  const TomatoTodoApp({super.key});
+class ShiguangApp extends StatefulWidget {
+  const ShiguangApp({super.key});
 
   @override
-  State<TomatoTodoApp> createState() => _TomatoTodoAppState();
+  State<ShiguangApp> createState() => _ShiguangAppState();
 }
 
-class _TomatoTodoAppState extends State<TomatoTodoApp> {
+class _ShiguangAppState extends State<ShiguangApp> {
   late final SettingsProvider _settingsProv;
   late final TaskProvider _taskProv;
+  late final HabitProvider _habitProv;
+  late final GoalProvider _goalProv;
+  late final ScheduleProvider _scheduleProv;
+  late final JournalProvider _journalProv;
   late final PomodoroProvider _pomoProv;
 
   @override
@@ -50,9 +54,21 @@ class _TomatoTodoAppState extends State<TomatoTodoApp> {
     super.initState();
     _settingsProv = SettingsProvider(StorageService.instance)..load();
     _taskProv = TaskProvider(StorageService.instance)..load();
+    _habitProv = HabitProvider(StorageService.instance)..load();
+    _goalProv = GoalProvider(StorageService.instance)..load();
+    _scheduleProv = ScheduleProvider(StorageService.instance)..load();
+    _journalProv = JournalProvider(StorageService.instance)..load();
     _pomoProv = PomodoroProvider(StorageService.instance)
       ..init(_settingsProv.settings);
-    // 当设置变化时,更新番茄钟配置
+
+    // 完成专注 -> 累加关联任务的番茄
+    _pomoProv.onWorkCompleted = (record, taskId) {
+      if (taskId != null) {
+        _taskProv.incrementPomodoro(taskId);
+      }
+    };
+
+    // 设置变化时同步计时器参数
     _settingsProv.addListener(() {
       _pomoProv.updateSettings(_settingsProv.settings);
     });
@@ -62,6 +78,10 @@ class _TomatoTodoAppState extends State<TomatoTodoApp> {
   void dispose() {
     _settingsProv.dispose();
     _taskProv.dispose();
+    _habitProv.dispose();
+    _goalProv.dispose();
+    _scheduleProv.dispose();
+    _journalProv.dispose();
     _pomoProv.dispose();
     super.dispose();
   }
@@ -72,38 +92,36 @@ class _TomatoTodoAppState extends State<TomatoTodoApp> {
       providers: [
         ChangeNotifierProvider.value(value: _settingsProv),
         ChangeNotifierProvider.value(value: _taskProv),
+        ChangeNotifierProvider.value(value: _habitProv),
+        ChangeNotifierProvider.value(value: _goalProv),
+        ChangeNotifierProvider.value(value: _scheduleProv),
+        ChangeNotifierProvider.value(value: _journalProv),
         ChangeNotifierProvider.value(value: _pomoProv),
       ],
       child: Consumer<SettingsProvider>(
         builder: (ctx, sp, _) {
           final theme = sp.currentTheme;
-          final isDark = theme.background.computeLuminance() < 0.5;
-
           return MaterialApp(
-            title: '番茄Todo',
+            title: '时光秘书',
             debugShowCheckedModeBanner: false,
             theme: ThemeData(
               useMaterial3: true,
               colorScheme: theme.toColorScheme(
-                isDark ? Brightness.dark : Brightness.light,
+                theme.isDark ? Brightness.dark : Brightness.light,
               ),
-              scaffoldBackgroundColor: Colors.transparent,
-              fontFamily: 'PingFang SC',
+              scaffoldBackgroundColor: theme.background,
               appBarTheme: AppBarTheme(
-                backgroundColor: Colors.transparent,
+                backgroundColor: theme.background,
                 foregroundColor: theme.foreground,
                 elevation: 0,
               ),
-              bottomNavigationBarTheme: BottomNavigationBarThemeData(
-                backgroundColor: Colors.transparent,
-                selectedItemColor: theme.primary,
-                unselectedItemColor:
-                    theme.foreground.withOpacity(0.4),
-                elevation: 0,
-                type: BottomNavigationBarType.fixed,
+              snackBarTheme: const SnackBarThemeData(
+                behavior: SnackBarBehavior.floating,
               ),
             ),
-            home: const RootPage(),
+            home: RootGate(
+              initiallyLocked: sp.settings.appLockEnabled,
+            ),
           );
         },
       ),
@@ -111,7 +129,29 @@ class _TomatoTodoAppState extends State<TomatoTodoApp> {
   }
 }
 
-// ============ 根页面:背景 + 导航 ============
+// ============ 应用锁入口 ============
+class RootGate extends StatefulWidget {
+  final bool initiallyLocked;
+
+  const RootGate({super.key, required this.initiallyLocked});
+
+  @override
+  State<RootGate> createState() => _RootGateState();
+}
+
+class _RootGateState extends State<RootGate> {
+  late bool _locked = widget.initiallyLocked;
+
+  @override
+  Widget build(BuildContext context) {
+    if (_locked) {
+      return LockScreen(onUnlocked: () => setState(() => _locked = false));
+    }
+    return const RootPage();
+  }
+}
+
+// ============ 根页面: 背景 + 导航 ============
 class RootPage extends StatefulWidget {
   const RootPage({super.key});
 
@@ -122,10 +162,12 @@ class RootPage extends StatefulWidget {
 class _RootPageState extends State<RootPage> {
   int _idx = 0;
 
-  final List<Widget> _screens = const [
-    HomeScreen(),
+  static const _screens = [
+    TodayScreen(),
+    TasksScreen(),
+    HabitsScreen(),
+    GoalsScreen(),
     StatsScreen(),
-    SettingsScreen(),
   ];
 
   @override
@@ -134,18 +176,14 @@ class _RootPageState extends State<RootPage> {
     final theme = sp.currentTheme;
 
     return Scaffold(
+      backgroundColor: theme.background,
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // 背景
           AppBackground(settings: sp.settings, theme: theme),
-          // 页面
           SafeArea(
             bottom: false,
-            child: IndexedStack(
-              index: _idx,
-              children: _screens,
-            ),
+            child: IndexedStack(index: _idx, children: _screens),
           ),
         ],
       ),
@@ -158,23 +196,26 @@ class _RootPageState extends State<RootPage> {
   }
 }
 
-// ============ 背景实现 ============
+// ============ 背景 ============
 class AppBackground extends StatelessWidget {
   final AppSettings settings;
   final ThemeDef theme;
-  const AppBackground({super.key, required this.settings, required this.theme});
+
+  const AppBackground({
+    super.key,
+    required this.settings,
+    required this.theme,
+  });
 
   @override
   Widget build(BuildContext context) {
     final path = settings.customBackgroundPath;
 
     Widget base;
-
     if (path != null && path.startsWith('grad_')) {
-      // 预设渐变
       final idx = int.tryParse(path.substring(5)) ?? 0;
       final colors = kGradientBackgrounds[
-          idx.clamp(0, kGradientBackgrounds.length - 1)];
+          idx.clamp(0, kGradientBackgrounds.length - 1).toInt()];
       base = DecoratedBox(
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -185,14 +226,12 @@ class AppBackground extends StatelessWidget {
         ),
       );
     } else if (path != null && path.isNotEmpty) {
-      // 自定义图片
       base = Image.file(
         File(path),
         fit: BoxFit.cover,
         errorBuilder: (_, __, ___) => _themeGradient(),
       );
     } else {
-      // 主题默认渐变
       base = _themeGradient();
     }
 
@@ -200,10 +239,9 @@ class AppBackground extends StatelessWidget {
       fit: StackFit.expand,
       children: [
         base,
-        // 遮罩层(用户可控透明度)
         Container(
           color: Colors.black.withOpacity(
-            settings.backgroundOpacity.clamp(0.0, 0.85),
+            settings.backgroundOpacity.clamp(0.0, 0.85).toDouble(),
           ),
         ),
       ],
@@ -214,7 +252,7 @@ class AppBackground extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [theme.background, theme.primary.withOpacity(0.3)],
+          colors: [theme.background, theme.primary.withOpacity(0.28)],
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
         ),
@@ -235,54 +273,52 @@ class _BottomBar extends StatelessWidget {
     required this.theme,
   });
 
+  static const _items = [
+    (Icons.wb_sunny_outlined, '今日'),
+    (Icons.checklist_rtl, '待办'),
+    (Icons.repeat, '习惯'),
+    (Icons.flag_outlined, '目标'),
+    (Icons.insights, '统计'),
+  ];
+
   @override
   Widget build(BuildContext context) {
-    final items = [
-      _BNItem(Icons.timer, '专注'),
-      _BNItem(Icons.bar_chart, '统计'),
-      _BNItem(Icons.settings, '设置'),
-    ];
-
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.cardBackground.withOpacity(0.8),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 20,
-            offset: const Offset(0, -6),
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+        child: Container(
+          decoration: BoxDecoration(
+            color: theme.cardBackground.withOpacity(0.78),
+            border: Border(
+              top: BorderSide(
+                  color: theme.foreground.withOpacity(0.06), width: 1),
+            ),
           ),
-        ],
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Row(
-            children: [
-              for (int i = 0; i < items.length; ++i)
-                Expanded(
-                  child: _BottomButton(
-                    icon: items[i].icon,
-                    label: items[i].label,
-                    active: i == index,
-                    onTap: () => onTap(i),
-                    theme: theme,
-                  ),
-                ),
-            ],
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(
+                children: [
+                  for (int i = 0; i < _items.length; ++i)
+                    Expanded(
+                      child: _BottomButton(
+                        icon: _items[i].$1,
+                        label: _items[i].$2,
+                        active: i == index,
+                        onTap: () => onTap(i),
+                        theme: theme,
+                      ),
+                    ),
+                ],
+              ),
+            ),
           ),
         ),
       ),
     );
   }
-}
-
-class _BNItem {
-  final IconData icon;
-  final String label;
-  const _BNItem(this.icon, this.label);
 }
 
 class _BottomButton extends StatelessWidget {
@@ -305,37 +341,36 @@ class _BottomButton extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
-        decoration: BoxDecoration(
-          color: active
-              ? theme.primary.withOpacity(0.12)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(18),
-        ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 4),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              padding: const EdgeInsets.all(4),
+              duration: const Duration(milliseconds: 180),
+              padding: const EdgeInsets.all(6),
               decoration: BoxDecoration(
-                color: active ? theme.primary : Colors.transparent,
-                shape: BoxShape.circle,
+                color: active
+                    ? theme.primary.withOpacity(0.14)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(12),
               ),
-              child: Icon(icon,
-                  color: active ? Colors.white : theme.foreground.withOpacity(0.5),
-                  size: 20),
+              child: Icon(
+                icon,
+                size: 20,
+                color: active
+                    ? theme.primary
+                    : theme.foreground.withOpacity(0.45),
+              ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 1),
             Text(
               label,
               style: TextStyle(
-                fontSize: 12,
+                fontSize: 10,
                 color: active
                     ? theme.primary
-                    : theme.foreground.withOpacity(0.5),
+                    : theme.foreground.withOpacity(0.45),
                 fontWeight: active ? FontWeight.w600 : FontWeight.w400,
               ),
             ),

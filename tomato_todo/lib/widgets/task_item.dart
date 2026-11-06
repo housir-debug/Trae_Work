@@ -1,151 +1,175 @@
-// widgets/task_item.dart - 单个任务卡片
+// widgets/task_item.dart - 待办列表项
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
+import '../core/utils.dart';
 import '../models/task.dart';
-import '../providers/task_provider.dart';
 import '../providers/settings_provider.dart';
-import '../providers/pomodoro_provider.dart';
+import 'ui.dart';
 
 class TaskItemWidget extends StatelessWidget {
   final Task task;
-  const TaskItemWidget({super.key, required this.task});
+  final VoidCallback onToggle;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
+  final VoidCallback? onFocus;
+  final bool showDate;
+
+  const TaskItemWidget({
+    super.key,
+    required this.task,
+    required this.onToggle,
+    this.onEdit,
+    this.onDelete,
+    this.onFocus,
+    this.showDate = true,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final taskProv = context.read<TaskProvider>();
-    final pomoProv = context.read<PomodoroProvider>();
-    final settings = context.watch<SettingsProvider>();
-    final theme = settings.currentTheme;
+    final theme = context.watch<SettingsProvider>().currentTheme;
+    final priorityColor = _priorityColor(task.priority);
 
-    final priorityColor = switch (task.priority) {
-      TaskPriority.high => Colors.redAccent,
-      TaskPriority.medium => Colors.orangeAccent,
-      TaskPriority.low => Colors.grey,
-    };
-
-    final isSelected = pomoProv.currentTaskId == task.id;
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      decoration: BoxDecoration(
-        color: isSelected
-            ? theme.primary.withOpacity(0.15)
-            : theme.cardBackground.withOpacity(0.9),
-        borderRadius: BorderRadius.circular(14),
-        border: isSelected
-            ? Border.all(color: theme.primary, width: 2)
-            : Border.all(color: Colors.transparent),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        child: Row(
-          children: [
-            // 完成勾
-            GestureDetector(
-              onTap: () => taskProv.completeTask(task.id),
+    return AppCard(
+      margin: const EdgeInsets.fromLTRB(20, 5, 20, 5),
+      padding: const EdgeInsets.fromLTRB(12, 11, 6, 11),
+      onTap: onEdit,
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: onToggle,
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.all(4),
               child: Container(
-                width: 26,
-                height: 26,
+                width: 22,
+                height: 22,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: task.isCompleted
-                      ? theme.primary
-                      : Colors.transparent,
+                  color: task.isCompleted ? theme.primary : Colors.transparent,
                   border: Border.all(
-                    color: task.isCompleted ? theme.primary : priorityColor,
-                    width: 2,
+                    color: task.isCompleted
+                        ? theme.primary
+                        : theme.foreground.withOpacity(0.28),
+                    width: 1.6,
                   ),
                 ),
                 child: task.isCompleted
-                    ? const Icon(Icons.check,
-                        color: Colors.white, size: 18)
+                    ? const Icon(Icons.check, size: 14, color: Colors.white)
                     : null,
               ),
             ),
-            const SizedBox(width: 12),
-            // 内容
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  task.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: task.isCompleted
+                        ? theme.muted
+                        : theme.foreground,
+                    decoration: task.isCompleted
+                        ? TextDecoration.lineThrough
+                        : null,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    TinyBadge(
+                      text: task.priority.label,
+                      color: priorityColor,
+                    ),
+                    if (showDate && task.dueDate != null)
+                      TinyBadge(
+                        text: task.isOverdue
+                            ? '已逾期·${friendlyDate(task.dueDate!)}'
+                            : friendlyDate(task.dueDate!),
+                        color: task.isOverdue
+                            ? const Color(0xFFFF5252)
+                            : theme.primary,
+                        icon: Icons.event_outlined,
+                      ),
+                    if (task.tags.isNotEmpty)
+                      for (final tag in task.tags.take(3))
+                        TinyBadge(text: '#$tag', color: theme.accent),
+                    TinyBadge(
+                      text: '${task.completedPomodoros}/${task.estimatedPomodoros} 番茄',
+                      color: const Color(0xFFF06292),
+                      icon: Icons.timer_outlined,
+                    ),
+                  ],
+                ),
+                if (task.notes.isNotEmpty) ...[
+                  const SizedBox(height: 4),
                   Text(
-                    task.title,
+                    task.notes,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 15,
-                      color: task.isCompleted
-                          ? theme.foreground.withOpacity(0.4)
-                          : theme.foreground,
-                      decoration: task.isCompleted
-                          ? TextDecoration.lineThrough
-                          : null,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 1),
-                        decoration: BoxDecoration(
-                          color: priorityColor.withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          switch (task.priority) {
-                            TaskPriority.high => '高',
-                            TaskPriority.medium => '中',
-                            TaskPriority.low => '低',
-                          },
-                          style: TextStyle(
-                              fontSize: 10, color: priorityColor),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '🍅 ${task.completedPomodoros}/${task.estimatedPomodoros}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: theme.foreground.withOpacity(0.55),
-                        ),
-                      ),
-                    ],
+                    style: TextStyle(fontSize: 11, color: theme.muted),
                   ),
                 ],
-              ),
+              ],
             ),
-            // 选择按钮(关联当前番茄)
+          ),
+          if (onFocus != null && !task.isCompleted)
             IconButton(
-              icon: Icon(
-                isSelected ? Icons.star : Icons.star_border,
-                color: isSelected ? theme.primary : theme.foreground.withOpacity(0.4),
-              ),
-              onPressed: () {
-                if (isSelected) {
-                  pomoProv.setTaskId(null);
-                } else {
-                  pomoProv.setTaskId(task.id);
-                }
+              tooltip: '开始专注',
+              icon: Icon(Icons.play_circle_outline,
+                  size: 19,
+                  color: theme.primary.withOpacity(0.85)),
+              onPressed: onFocus,
+              visualDensity: VisualDensity.compact,
+            ),
+          if (onEdit != null || onDelete != null)
+            PopupMenuButton<String>(
+              icon: Icon(Icons.more_vert, size: 18, color: theme.muted),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 120),
+              color: theme.cardBackground,
+              onSelected: (v) {
+                if (v == 'edit') onEdit?.call();
+                if (v == 'delete') onDelete?.call();
               },
-              tooltip: isSelected ? '取消关联' : '关联到当前番茄',
+              itemBuilder: (_) => [
+                if (onEdit != null)
+                  PopupMenuItem(
+                    value: 'edit',
+                    child: Text('编辑',
+                        style: TextStyle(fontSize: 13, color: theme.foreground)),
+                  ),
+                if (onDelete != null)
+                  PopupMenuItem(
+                    value: 'delete',
+                    child: Text('删除',
+                        style: TextStyle(
+                            fontSize: 13, color: theme.foreground)),
+                  ),
+              ],
             ),
-            // 删除
-            IconButton(
-              icon: Icon(Icons.delete_outline,
-                  color: theme.foreground.withOpacity(0.4)),
-              onPressed: () => taskProv.deleteTask(task.id),
-            ),
-          ],
-        ),
+        ],
       ),
     );
+  }
+
+  Color _priorityColor(TaskPriority p) {
+    switch (p) {
+      case TaskPriority.high:
+        return const Color(0xFFFF5252);
+      case TaskPriority.medium:
+        return const Color(0xFFFFA726);
+      case TaskPriority.low:
+        return const Color(0xFF6BCB9D);
+    }
   }
 }

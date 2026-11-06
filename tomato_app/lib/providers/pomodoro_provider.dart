@@ -1,15 +1,25 @@
-// providers/pomodoro_provider.dart - 番茄钟状态 Provider
+// providers/pomodoro_provider.dart - 番茄钟状态
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import '../core/utils.dart';
 import '../models/app_settings.dart';
 import '../models/pomodoro_record.dart';
+import '../models/task.dart';
 import '../services/storage_service.dart';
 import '../services/timer_service.dart';
 
 class PomodoroProvider extends ChangeNotifier {
   final StorageService _storage;
   TimerService? _timer;
+  AppSettings _settings = AppSettings();
   List<PomodoroRecord> _records = [];
   int _completedWorkCount = 0;
+  String? _currentTaskId;
+  String? _currentTaskTitle;
+
+  /// 完成一个专注阶段时回调(用于给任务累加番茄)
+  void Function(PomodoroRecord record, String? taskId)? onWorkCompleted;
 
   PomodoroProvider(this._storage);
 
@@ -19,50 +29,69 @@ class PomodoroProvider extends ChangeNotifier {
   double get progress => _timer?.progress ?? 0;
   String get phaseLabel => _timer?.phaseLabel ?? '专注中';
   int get completedWorkCount => _completedWorkCount;
+  bool get isRunning => state == TimerState.running;
+  bool get isPaused => state == TimerState.paused;
 
   List<PomodoroRecord> get records => _records;
 
-  String get timeDisplay {
-    return _timer?.formatTime(remainingSeconds) ?? '25:00';
-  }
+  String? get currentTaskId => _currentTaskId;
+  String? get currentTaskTitle => _currentTaskTitle;
+
+  String get timeDisplay =>
+      _timer?.formatTime(remainingSeconds) ?? '--:--';
 
   void init(AppSettings settings) {
+    _settings = settings;
     _completedWorkCount = _storage.loadCompletedWorkCount();
     _records = _storage.loadRecords();
-    _timer = TimerService(
-      settings: settings,
-      onPhaseComplete: (record) {
-        _records.add(record);
-        _storage.saveRecords(_records);
-        _completedWorkCount = _timer!.completedWorkCount;
-        _storage.saveCompletedWorkCount(_completedWorkCount);
-        notifyListeners();
-      },
-      onPhaseChange: (_) => notifyListeners(),
-    );
-    _timer!.start();
-    _timer!.pause();
+    _timer = _buildTimer(settings);
     notifyListeners();
   }
 
+  TimerService _buildTimer(AppSettings settings) => TimerService(
+        settings: settings,
+        onTick: () => notifyListeners(),
+        onPhaseChange: (_) => notifyListeners(),
+        onPhaseComplete: (record) {
+          final enriched = PomodoroRecord(
+            id: record.id,
+            type: record.type,
+            durationMinutes: record.durationMinutes,
+            startedAt: record.startedAt,
+            completedAt: record.completedAt,
+            taskId: _currentTaskId,
+            taskTitle: _currentTaskTitle,
+          );
+          _records.add(enriched);
+          _storage.saveRecords(_records);
+          _completedWorkCount = _timer!.completedWorkCount;
+          _storage.saveCompletedWorkCount(_completedWorkCount);
+          if (enriched.type == PomodoroType.work) {
+            onWorkCompleted?.call(enriched, _currentTaskId);
+          }
+          if (_settings.enableVibrate) {
+            HapticFeedback.mediumImpact();
+          }
+          if (_settings.showNotification) {
+            SystemSound.play(SystemSoundType.alert);
+          }
+          notifyListeners();
+
+          if (_timer!.settings.autoStartNext) {
+            Future.delayed(const Duration(milliseconds: 800), () {
+              _timer?.start();
+            });
+          }
+        },
+      );
+
   void updateSettings(AppSettings settings) {
-    // 重新创建计时器以应用新设置的时长
-    final wasRunning = _timer?.state == TimerState.running;
-    final currentPhase = _timer?.phase ?? TimerPhase.work;
-    _timer = TimerService(
-      settings: settings,
-      onPhaseComplete: (record) {
-        _records.add(record);
-        _storage.saveRecords(_records);
-        _completedWorkCount = _timer!.completedWorkCount;
-        _storage.saveCompletedWorkCount(_completedWorkCount);
-        notifyListeners();
-      },
-      onPhaseChange: (_) => notifyListeners(),
-    );
-    _timer!.setPhase(currentPhase);
-    if (wasRunning) _timer!.resume();
-    notifyListeners();
+    final old = _settings;
+    _settings = settings;
+    final durationChanged = old.workDuration != settings.workDuration ||
+        old.shortBreakDuration != settings.shortBreakDuration ||
+        old.longBreakDuration != settings.longBreakDuration;
+    _timer?.applySettings(settings, resetDuration: durationChanged);
   }
 
   void start() {
@@ -75,9 +104,16 @@ class PomodoroProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void resume() {
-    _timer?.resume();
-    notifyListeners();
+  void toggle() {
+    switch (state) {
+      case TimerState.running:
+        pause();
+        break;
+      case TimerState.idle:
+      case TimerState.paused:
+        start();
+        break;
+    }
   }
 
   void reset() {
@@ -95,10 +131,74 @@ class PomodoroProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setTaskId(String? taskId) {
-    _currentTaskId = taskId;
+  void assignTask(Task? task) {
+    _currentTaskId = task?.id;
+    _currentTaskTitle = task?.title;
+    notifyListeners();
   }
 
-  String? _currentTaskId;
-  String? get currentTaskId => _currentTaskId;
+  // ---------- 统计 ----------
+  int workMinutesOn(DateTime day) => _records
+      .where((r) => r.type == PomodoroType.work && r.isSameDay(day))
+      .fold(0, (sum, r) => sum + r.durationMinutes);
+
+  int workCountOn(DateTime day) =>
+      _records.where((r) => r.type == PomodoroType.work && r.isSameDay(day)).length;
+
+  int get todayWorkMinutes => workMinutesOn(DateTime.now());
+
+  int get todayWorkCount => workCountOn(DateTime.now());
+
+  int get todayBreakMinutes => _records
+      .where((r) => r.type != PomodoroType.work && r.isSameDay(DateTime.now()))
+      .fold(0, (sum, r) => sum + r.durationMinutes);
+
+  int get totalWorkMinutes =>
+      _records.where((r) => r.type == PomodoroType.work)
+          .fold(0, (sum, r) => sum + r.durationMinutes);
+
+  /// 最近 n 天(含今天)每日专注分钟数, 按时间顺序
+  List<int> workMinutesLastDays(int n) {
+    final today = startOfDay(DateTime.now());
+    return List<int>.generate(
+        n, (i) => workMinutesOn(today.subtract(Duration(days: n - 1 - i))));
+  }
+
+  /// 最近 n 天每日专注次数
+  List<int> workCountLastDays(int n) {
+    final today = startOfDay(DateTime.now());
+    return List<int>.generate(
+        n, (i) => workCountOn(today.subtract(Duration(days: n - 1 - i))));
+  }
+
+  /// 连续专注天数(在最近 60 天内回溯)
+  int get focusStreak {
+    var cursor = startOfDay(DateTime.now());
+    if (workCountOn(cursor) == 0) {
+      cursor = cursor.subtract(const Duration(days: 1));
+    }
+    var n = 0;
+    while (n < 60 && workCountOn(cursor) > 0) {
+      n++;
+      cursor = cursor.subtract(const Duration(days: 1));
+    }
+    return n;
+  }
+
+  void clearAll() {
+    _records = [];
+    _completedWorkCount = 0;
+    _storage.saveRecords(_records);
+    _storage.saveCompletedWorkCount(0);
+    _timer?.reset();
+    notifyListeners();
+  }
+
+  /// 导入备份后重新读取本地数据
+  void reloadFromStorage() {
+    _records = _storage.loadRecords();
+    _completedWorkCount = _storage.loadCompletedWorkCount();
+    _timer?.reset();
+    notifyListeners();
+  }
 }

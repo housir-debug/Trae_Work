@@ -1,587 +1,769 @@
-// screens/settings_screen.dart - 设置 & 主题自由定制
+// screens/settings_screen.dart - 设置中心
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
-import '../providers/settings_provider.dart';
+
+import '../core/utils.dart';
+import '../models/app_settings.dart';
+import '../providers/goal_provider.dart';
+import '../providers/habit_provider.dart';
+import '../providers/journal_provider.dart';
 import '../providers/pomodoro_provider.dart';
+import '../providers/schedule_provider.dart';
+import '../providers/settings_provider.dart';
+import '../providers/task_provider.dart';
+import '../services/storage_service.dart';
 import '../theme/backgrounds.dart';
+import '../widgets/ui.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final theme = context.watch<SettingsProvider>().currentTheme;
     final sp = context.watch<SettingsProvider>();
-    final theme = sp.currentTheme;
+    final settings = sp.settings;
 
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-            child: Text(
-              '设置 & 主题',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w700,
-                color: theme.foreground,
-              ),
-            ),
-          ),
-          // ==== 主题选择 ====
-          _SectionHeader(title: '🎨 主题', theme: theme),
-          _ThemePicker(),
-          const SizedBox(height: 16),
-
-          // ==== 背景图 ====
-          _SectionHeader(title: '🖼 背景图(任意可用)', theme: theme),
-          _BackgroundPicker(),
-          const SizedBox(height: 16),
-
-          // ==== 计时时长 ====
-          _SectionHeader(title: '⏱ 计时时长', theme: theme),
-          _DurationSliders(),
-          const SizedBox(height: 16),
-
-          // ==== 番茄设置 ====
-          _SectionHeader(title: '🍅 番茄规则', theme: theme),
-          _LongBreakInterval(),
-          const SizedBox(height: 16),
-
-          // ==== 提醒 ====
-          _SectionHeader(title: '🔔 提醒方式', theme: theme),
-          _ReminderToggles(),
-          const SizedBox(height: 16),
-
-          // ==== 声音 ====
-          _SectionHeader(title: '🔊 提示音', theme: theme),
-          _SoundPicker(),
-          const SizedBox(height: 100),
-        ],
-      ),
-    );
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  final String title;
-  final ThemeDef theme;
-  const _SectionHeader({required this.title, required this.theme});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 10),
-      child: Text(title,
-          style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: theme.foreground.withOpacity(0.7))),
-    );
-  }
-}
-
-// ------- 主题选择器 -------
-class _ThemePicker extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final sp = context.watch<SettingsProvider>();
-    final theme = sp.currentTheme;
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: theme.cardBackground.withOpacity(0.85),
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Column(
-        children: [
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: kBuiltinThemes.length,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 4,
-              childAspectRatio: 0.85,
-              crossAxisSpacing: 10,
-              mainAxisSpacing: 10,
-            ),
-            itemBuilder: (ctx, idx) {
-              final t = kBuiltinThemes[idx];
-              final selected = sp.settings.themeIndex == idx;
-              return GestureDetector(
-                onTap: () => sp.setTheme(idx),
-                child: Column(
-                  children: [
-                    Container(
-                      width: double.infinity,
-                      height: 58,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(12),
-                        gradient: LinearGradient(
-                          colors: [t.primary, t.accent],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        border: selected
-                            ? Border.all(color: theme.foreground, width: 3)
-                            : null,
-                      ),
-                      child: selected
-                          ? const Icon(Icons.check,
-                              color: Colors.white, size: 22)
-                          : null,
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      t.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontSize: 11, color: theme.foreground),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ------- 背景图选择 -------
-class _BackgroundPicker extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final sp = context.watch<SettingsProvider>();
-    final theme = sp.currentTheme;
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: theme.cardBackground.withOpacity(0.85),
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // 预设渐变
-          const Text('预设渐变(全部免费)',
-              style: TextStyle(fontSize: 12)),
-          const SizedBox(height: 10),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: kGradientBackgrounds.length,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 6,
-              childAspectRatio: 1,
-              crossAxisSpacing: 8,
-              mainAxisSpacing: 8,
-            ),
-            itemBuilder: (ctx, idx) {
-              final colors = kGradientBackgrounds[idx];
-              final key = 'grad_$idx';
-              final selected = sp.settings.customBackgroundPath == key ||
-                  (sp.settings.customBackgroundPath == null &&
-                      sp.settings.themeIndex == idx);
-              return GestureDetector(
-                onTap: () {
-                  // 选中渐变背景,清空 customBackgroundPath 会使 UI 用主题色
-                  // 这里用特殊 key 让 UI 识别为渐变
-                  sp.setCustomBackground(key);
-                },
-                child: Container(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(10),
-                    gradient: LinearGradient(
-                      colors: colors,
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    border: selected
-                        ? Border.all(color: theme.foreground, width: 3)
-                        : null,
-                  ),
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              // 自定义图片
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () async {
-                    final picker = ImagePicker();
-                    final picked =
-                        await picker.pickImage(source: ImageSource.gallery);
-                    if (picked != null) {
-                      sp.setCustomBackground(picked.path);
-                    }
-                  },
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(0, 44),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    side: BorderSide(color: theme.primary),
-                    foregroundColor: theme.primary,
-                  ),
-                  icon: const Icon(Icons.image, size: 18),
-                  label: const Text('从相册选图'),
-                ),
-              ),
-              const SizedBox(width: 10),
-              // 清除自定义
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () {
-                    sp.setCustomBackground(null);
-                  },
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(0, 44),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    side: BorderSide(color: theme.foreground.withOpacity(0.3)),
-                    foregroundColor: theme.foreground.withOpacity(0.7),
-                  ),
-                  icon: const Icon(Icons.close, size: 18),
-                  label: const Text('清除自定义'),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          // 透明度
-          Row(
-            children: [
-              Text('遮罩透明度',
-                  style: TextStyle(
-                      fontSize: 12,
-                      color: theme.foreground.withOpacity(0.7))),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Slider(
-                  value: sp.settings.backgroundOpacity,
-                  min: 0,
-                  max: 1,
-                  onChanged: sp.setBackgroundOpacity,
-                  activeColor: theme.primary,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text('${(sp.settings.backgroundOpacity * 100).toStringAsFixed(0)}%',
-                  style: TextStyle(
-                      fontSize: 12,
-                      color: theme.foreground.withOpacity(0.7))),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ------- 时长滑块 -------
-class _DurationSliders extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final sp = context.watch<SettingsProvider>();
-    final theme = sp.currentTheme;
-    final s = sp.settings;
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: theme.cardBackground.withOpacity(0.85),
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Column(
-        children: [
-          _sliderRow(
-            label: '专注时长',
-            value: s.workDuration.toDouble(),
-            min: 5,
-            max: 90,
-            step: 5,
-            unit: '分钟',
-            theme: theme,
-            onChanged: (v) => sp.updateDuration(work: v.toInt()),
-          ),
-          _sliderRow(
-            label: '短休息',
-            value: s.shortBreakDuration.toDouble(),
-            min: 1,
-            max: 20,
-            step: 1,
-            unit: '分钟',
-            theme: theme,
-            onChanged: (v) => sp.updateDuration(shortBreak: v.toInt()),
-          ),
-          _sliderRow(
-            label: '长休息',
-            value: s.longBreakDuration.toDouble(),
-            min: 5,
-            max: 45,
-            step: 5,
-            unit: '分钟',
-            theme: theme,
-            onChanged: (v) => sp.updateDuration(longBreak: v.toInt()),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _sliderRow({
-    required String label,
-    required double value,
-    required double min,
-    required double max,
-    required double step,
-    required String unit,
-    required ThemeDef theme,
-    required ValueChanged<double> onChanged,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 80,
-            child: Text(label,
-                style: TextStyle(
-                    fontSize: 13, color: theme.foreground.withOpacity(0.8))),
-          ),
-          Expanded(
-            child: Slider(
-              value: value,
-              min: min,
-              max: max,
-              divisions: ((max - min) / step).round(),
-              onChanged: onChanged,
-              activeColor: theme.primary,
-            ),
-          ),
-          SizedBox(
-            width: 60,
-            child: Text('${value.toInt()} $unit',
-                textAlign: TextAlign.right,
-                style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: theme.foreground)),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ------- 长休息间隔 -------
-class _LongBreakInterval extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final sp = context.watch<SettingsProvider>();
-    final theme = sp.currentTheme;
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: theme.cardBackground.withOpacity(0.85),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text('长休息间隔',
-                style: TextStyle(color: theme.foreground)),
-          ),
-          Text('每 ${sp.settings.longBreakInterval} 个番茄后',
-              style: TextStyle(
-                  color: theme.foreground.withOpacity(0.7), fontSize: 13)),
-          const SizedBox(width: 10),
-          DropdownButtonHideUnderline(
-            child: DropdownButton<int>(
-              value: sp.settings.longBreakInterval,
-              isDense: true,
-              items: [2, 3, 4, 5, 6, 8]
-                  .map((n) => DropdownMenuItem(value: n, child: Text('$n')))
-                  .toList(),
-              onChanged: (v) {
-                if (v != null) sp.updateDuration(longBreakInterval: v);
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ------- 提醒开关 -------
-class _ReminderToggles extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final sp = context.watch<SettingsProvider>();
-    final theme = sp.currentTheme;
-    final s = sp.settings;
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-      decoration: BoxDecoration(
-        color: theme.cardBackground.withOpacity(0.85),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Column(
-        children: [
-          _toggleRow(
-            label: '自动开始下一个番茄',
-            value: s.autoStartNext,
-            onChanged: (_) => sp.toggleAutoStart(),
-            theme: theme,
-          ),
-          const Divider(height: 1),
-          _toggleRow(
-            label: '完成时显示系统通知',
-            value: s.showNotification,
-            onChanged: (_) => sp.toggleNotification(),
-            theme: theme,
-          ),
-          const Divider(height: 1),
-          _toggleRow(
-            label: '完成时震动',
-            value: s.enableVibrate,
-            onChanged: (_) => sp.toggleVibrate(),
-            theme: theme,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _toggleRow({
-    required String label,
-    required bool value,
-    required ValueChanged<bool> onChanged,
-    required ThemeDef theme,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(label,
-                style: TextStyle(color: theme.foreground, fontSize: 14)),
-          ),
-          Switch(
-            value: value,
-            onChanged: onChanged,
-            activeColor: theme.primary,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ------- 声音选择 -------
-class _SoundPicker extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final sp = context.watch<SettingsProvider>();
-    final theme = sp.currentTheme;
-
-    final tickSounds = ['tick', 'clock', 'none'];
-    final completeSounds = ['bell', 'chime', 'ding', 'none'];
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: theme.cardBackground.withOpacity(0.85),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Column(
-        children: [
-          _soundChipRow(
-            label: '滴答声',
-            sounds: tickSounds,
-            current: sp.settings.tickSound,
-            onSelect: (v) async {
-              await sp.update(sp.settings.copyWith(tickSound: v));
-            },
-            theme: theme,
-          ),
-          const SizedBox(height: 12),
-          _soundChipRow(
-            label: '完成提示',
-            sounds: completeSounds,
-            current: sp.settings.completeSound,
-            onSelect: (v) async {
-              await sp.update(sp.settings.copyWith(completeSound: v));
-            },
-            theme: theme,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _soundChipRow({
-    required String label,
-    required List<String> sounds,
-    required String current,
-    required ValueChanged<String> onSelect,
-    required ThemeDef theme,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label,
+    return Scaffold(
+      backgroundColor: theme.background,
+      appBar: AppBar(
+        backgroundColor: theme.background,
+        elevation: 0,
+        foregroundColor: theme.foreground,
+        title: Text('设置',
             style: TextStyle(
-                fontSize: 12,
-                color: theme.foreground.withOpacity(0.7))),
-        const SizedBox(height: 6),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: sounds.map((s) {
-            final selected = current == s;
-            return GestureDetector(
-              onTap: () => onSelect(s),
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                decoration: BoxDecoration(
-                  color: selected ? theme.primary : Colors.transparent,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: selected ? theme.primary : theme.foreground.withOpacity(0.2),
+                fontSize: 19,
+                fontWeight: FontWeight.w700,
+                color: theme.foreground)),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 40),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // ---------------- 每日目标 ----------------
+            SectionHeader(
+              title: '每日目标',
+              subtitle: '给每天一个清晰的锚点',
+              margin: const EdgeInsets.fromLTRB(0, 8, 0, 10),
+            ),
+            AppCard(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+              child: Column(
+                children: [
+                  _SliderRow(
+                    label: '专注时长目标',
+                    value: durationText(settings.dailyFocusGoal),
+                    child: Slider(
+                      value: settings.dailyFocusGoal.toDouble(),
+                      min: 30,
+                      max: 480,
+                      divisions: 15,
+                      activeColor: theme.primary,
+                      onChanged: (v) =>
+                          sp.setDailyGoals(focus: (v / 30).round() * 30),
+                    ),
                   ),
-                ),
-                child: Text(
-                  s == 'none' ? '静音' : s,
-                  style: TextStyle(
-                      fontSize: 12,
-                      color: selected ? Colors.white : theme.foreground.withOpacity(0.8)),
-                ),
+                  _SliderRow(
+                    label: '每日完成待办',
+                    value: '${settings.dailyTaskGoal} 项',
+                    child: Slider(
+                      value: settings.dailyTaskGoal.toDouble(),
+                      min: 1,
+                      max: 20,
+                      divisions: 19,
+                      activeColor: theme.primary,
+                      onChanged: (v) =>
+                          sp.setDailyGoals(tasks: v.round()),
+                    ),
+                  ),
+                ],
               ),
-            );
-          }).toList(),
+            ),
+            // ---------------- 番茄钟 ----------------
+            SectionHeader(
+              title: '番茄钟',
+              subtitle: '适配你自己的专注节奏',
+              margin: const EdgeInsets.fromLTRB(0, 24, 0, 10),
+            ),
+            AppCard(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+              child: Column(
+                children: [
+                  _SliderRow(
+                    label: '专注时长',
+                    value: '${settings.workDuration} 分钟',
+                    child: Slider(
+                      value: settings.workDuration.toDouble(),
+                      min: 5,
+                      max: 60,
+                      divisions: 11,
+                      activeColor: theme.primary,
+                      onChanged: (v) =>
+                          sp.updateDuration(work: v.round()),
+                    ),
+                  ),
+                  _SliderRow(
+                    label: '短休息',
+                    value: '${settings.shortBreakDuration} 分钟',
+                    child: Slider(
+                      value: settings.shortBreakDuration.toDouble(),
+                      min: 1,
+                      max: 30,
+                      divisions: 29,
+                      activeColor: theme.primary,
+                      onChanged: (v) =>
+                          sp.updateDuration(shortBreak: v.round()),
+                    ),
+                  ),
+                  _SliderRow(
+                    label: '长休息',
+                    value: '${settings.longBreakDuration} 分钟',
+                    child: Slider(
+                      value: settings.longBreakDuration.toDouble(),
+                      min: 5,
+                      max: 60,
+                      divisions: 11,
+                      activeColor: theme.primary,
+                      onChanged: (v) =>
+                          sp.updateDuration(longBreak: v.round()),
+                    ),
+                  ),
+                  _SliderRow(
+                    label: '长休间隔',
+                    value: '每 ${settings.longBreakInterval} 个番茄',
+                    child: Slider(
+                      value: settings.longBreakInterval.toDouble(),
+                      min: 2,
+                      max: 8,
+                      divisions: 6,
+                      activeColor: theme.primary,
+                      onChanged: (v) => sp.updateDuration(
+                          longBreakInterval: v.round()),
+                    ),
+                  ),
+                  _SwitchRow(
+                    icon: Icons.play_circle_outline,
+                    title: '自动开始下一阶段',
+                    subtitle: '专注结束后自动进入休息',
+                    value: settings.autoStartNext,
+                    onChanged: (_) => sp.toggleAutoStart(),
+                  ),
+                ],
+              ),
+            ),
+            // ---------------- 反馈 ----------------
+            SectionHeader(
+              title: '提醒与反馈',
+              margin: const EdgeInsets.fromLTRB(0, 24, 0, 10),
+            ),
+            AppCard(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
+              child: Column(
+                children: [
+                  _SwitchRow(
+                    icon: Icons.vibration,
+                    title: '完成时震动',
+                    subtitle: '阶段结束时轻震提醒',
+                    value: settings.enableVibrate,
+                    onChanged: (_) => sp.toggleVibrate(),
+                  ),
+                  Divider(
+                      height: 1,
+                      color: theme.foreground.withOpacity(0.06)),
+                  _SwitchRow(
+                    icon: Icons.music_note_outlined,
+                    title: '完成提示音',
+                    subtitle: '阶段结束时播放系统提示音',
+                    value: settings.showNotification,
+                    onChanged: (_) => sp.toggleNotification(),
+                  ),
+                ],
+              ),
+            ),
+            // ---------------- 外观 ----------------
+            SectionHeader(
+              title: '主题与背景',
+              subtitle: '全部免费, 随心搭配',
+              margin: const EdgeInsets.fromLTRB(0, 24, 0, 10),
+            ),
+            AppCard(
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('主题配色',
+                      style:
+                          TextStyle(fontSize: 12, color: theme.muted)),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 12,
+                    children: kBuiltinThemes.asMap().entries.map((e) {
+                      final selected = settings.themeIndex == e.key;
+                      return GestureDetector(
+                        onTap: () => sp.setTheme(e.key),
+                        child: SizedBox(
+                          width: 64,
+                          child: Column(
+                            children: [
+                              Container(
+                                width: 36,
+                                height: 36,
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      e.value.primary,
+                                      e.value.accent
+                                    ],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ),
+                                  shape: BoxShape.circle,
+                                  border: selected
+                                      ? Border.all(
+                                          color: theme.foreground,
+                                          width: 2)
+                                      : null,
+                                ),
+                                child: selected
+                                    ? const Icon(Icons.check,
+                                        size: 16, color: Colors.white)
+                                    : null,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                e.value.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  color: selected
+                                      ? theme.foreground
+                                      : theme.muted,
+                                  fontWeight: selected
+                                      ? FontWeight.w600
+                                      : FontWeight.w400,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 18),
+                  Text('渐变背景',
+                      style:
+                          TextStyle(fontSize: 12, color: theme.muted)),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _bgItem(
+                        context,
+                        label: '默认',
+                        selected:
+                            settings.customBackgroundPath == null,
+                        onTap: () =>
+                            context.read<SettingsProvider>().setCustomBackground(null),
+                        colorStart: theme.background,
+                        colorEnd: theme.primary,
+                      ),
+                      for (int i = 0; i < kGradientBackgrounds.length; ++i)
+                        _bgItem(
+                          context,
+                          label: '$i',
+                          selected: settings.customBackgroundPath ==
+                              'grad_$i',
+                          onTap: () => context
+                              .read<SettingsProvider>()
+                              .setCustomBackground('grad_$i'),
+                          colorStart: kGradientBackgrounds[i][0],
+                          colorEnd: kGradientBackgrounds[i][1],
+                        ),
+                      GestureDetector(
+                        onTap: () => _pickImage(context),
+                        child: Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: theme.primary.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                                color: theme.primary.withOpacity(0.2)),
+                          ),
+                          child: Icon(Icons.photo_library_outlined,
+                              size: 18, color: theme.primary),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Text('背景遮罩',
+                          style:
+                              TextStyle(fontSize: 12, color: theme.muted)),
+                      const Spacer(),
+                      Text(
+                          '${(settings.backgroundOpacity * 100).round()}%',
+                          style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: theme.primary)),
+                    ],
+                  ),
+                  Slider(
+                    value: settings.backgroundOpacity,
+                    min: 0,
+                    max: 0.85,
+                    divisions: 17,
+                    activeColor: theme.primary,
+                    onChanged: (v) => sp.setBackgroundOpacity(v),
+                  ),
+                ],
+              ),
+            ),
+            // ---------------- 安全 ----------------
+            SectionHeader(
+              title: '安全与隐私',
+              subtitle: '数据只属于你',
+              margin: const EdgeInsets.fromLTRB(0, 24, 0, 10),
+            ),
+            AppCard(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _SwitchRow(
+                    icon: Icons.lock_outline,
+                    title: '应用锁',
+                    subtitle: '打开应用时需要 4 位密码',
+                    value: settings.appLockEnabled,
+                    onChanged: (v) async {
+                      if (v) {
+                        final pin = await _askPin(context);
+                        if (pin != null) {
+                          await sp.enableAppLock(pin);
+                          if (context.mounted) {
+                            showToast(context, '应用锁已开启');
+                          }
+                        }
+                      } else {
+                        final ok = await showConfirmDialog(context,
+                            title: '关闭应用锁?',
+                            content: '关闭后打开应用不再需要密码',
+                            danger: true,
+                            confirmText: '关闭');
+                        if (ok) await sp.disableAppLock();
+                      }
+                    },
+                  ),
+                  Divider(
+                      height: 1,
+                      color: theme.foreground.withOpacity(0.06)),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.shield_outlined,
+                            size: 17, color: theme.primary),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '所有待办、习惯、目标、复盘与专注记录均保存在本机, 不上传任何服务器; 建议定期导出备份。',
+                            style: TextStyle(
+                                fontSize: 10.5,
+                                height: 1.5,
+                                color: theme.muted),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // ---------------- 数据 ----------------
+            SectionHeader(
+              title: '数据管理',
+              margin: const EdgeInsets.fromLTRB(0, 24, 0, 10),
+            ),
+            AppCard(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Column(
+                children: [
+                  _ActionRow(
+                    icon: Icons.upload_file_outlined,
+                    title: '导出备份',
+                    subtitle: '复制全部数据到剪贴板',
+                    onTap: () => _export(context),
+                  ),
+                  _ActionRow(
+                    icon: Icons.download_outlined,
+                    title: '从剪贴板恢复',
+                    subtitle: '粘贴之前导出的备份内容',
+                    onTap: () => _import(context),
+                  ),
+                  _ActionRow(
+                    icon: Icons.delete_outline,
+                    title: '清空全部数据',
+                    subtitle: '不可恢复, 请先导出备份',
+                    danger: true,
+                    onTap: () => _clear(context),
+                  ),
+                ],
+              ),
+            ),
+            // ---------------- 关于 ----------------
+            SectionHeader(
+              title: '关于',
+              margin: const EdgeInsets.fromLTRB(0, 24, 0, 10),
+            ),
+            AppCard(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [theme.primary, theme.accent],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text('时',
+                        style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white)),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('时光秘书',
+                            style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: theme.foreground)),
+                        const SizedBox(height: 2),
+                        Text('版本 2.0.0 · 专属个人的时间管理秘书',
+                            style: TextStyle(
+                                fontSize: 10, color: theme.muted)),
+                        Text('无需会员 · 无广告 · 全部功能开放',
+                            style: TextStyle(
+                                fontSize: 10, color: theme.muted)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 40),
+          ],
         ),
+      ),
+    );
+  }
+
+  Widget _bgItem(
+    BuildContext context, {
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+    required Color colorStart,
+    required Color colorEnd,
+  }) {
+    final theme = context.watch<SettingsProvider>().currentTheme;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [colorStart, colorEnd],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(10),
+          border: selected
+              ? Border.all(color: theme.foreground, width: 2)
+              : Border.all(
+                  color: theme.foreground.withOpacity(0.06)),
+        ),
+        child: selected
+            ? const Icon(Icons.check, size: 16, color: Colors.white)
+            : null,
+      ),
+    );
+  }
+
+  Future<String?> _askPin(BuildContext context) async {
+    final controller = TextEditingController();
+    final theme = context.read<SettingsProvider>().currentTheme;
+    final pin = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: theme.cardBackground,
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18)),
+        title: Text('设置应用锁',
+            style: TextStyle(fontSize: 17, color: theme.foreground)),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          obscureText: true,
+          maxLength: 4,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          style: TextStyle(color: theme.foreground, letterSpacing: 6),
+          decoration: appInput(
+            context: context,
+            hint: '输入 4 位数字密码',
+          ).copyWith(counterText: ''),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('取消', style: TextStyle(color: theme.muted)),
+          ),
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: controller,
+            builder: (_, value, __) => TextButton(
+              onPressed: value.text.length == 4
+                  ? () => Navigator.pop(ctx, value.text)
+                  : null,
+              child: Text('开启',
+                  style: TextStyle(
+                      color: value.text.length == 4
+                          ? theme.primary
+                          : theme.muted,
+                      fontWeight: FontWeight.w600)),
+            ),
+          ),
+        ],
+      ),
+    );
+    return pin;
+  }
+
+  Future<void> _pickImage(BuildContext context) async {
+    try {
+      final picker = ImagePicker();
+      final file = await picker.pickImage(source: ImageSource.gallery);
+      if (file != null && context.mounted) {
+        await context
+            .read<SettingsProvider>()
+            .setCustomBackground(file.path);
+        if (context.mounted) showToast(context, '背景已更新');
+      }
+    } catch (e) {
+      if (context.mounted) showToast(context, '选择图片失败: $e');
+    }
+  }
+
+  Future<void> _export(BuildContext context) async {
+    final data = StorageService.instance.exportBackup();
+    await Clipboard.setData(ClipboardData(text: data));
+    if (context.mounted) {
+      showToast(context, '备份已复制到剪贴板, 请妥善保存');
+    }
+  }
+
+  Future<void> _import(BuildContext context) async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = data?.text?.trim();
+    if (text == null || text.isEmpty) {
+      if (context.mounted) showToast(context, '剪贴板为空');
+      return;
+    }
+    final ok = await showConfirmDialog(context,
+        title: '从剪贴板恢复?',
+        content: '导入后将覆盖当前全部数据, 确定继续吗?',
+        confirmText: '恢复');
+    if (!ok || !context.mounted) return;
+    try {
+      await StorageService.instance.importBackup(text);
+      _reloadAll(context);
+      if (context.mounted) showToast(context, '数据已恢复');
+    } catch (e) {
+      if (context.mounted) showToast(context, '恢复失败, 备份内容无效');
+    }
+  }
+
+  Future<void> _clear(BuildContext context) async {
+    final ok = await showConfirmDialog(context,
+        title: '清空全部数据?',
+        content: '待办、习惯、目标、日程、复盘和专注记录都会被删除, 且无法恢复。',
+        danger: true,
+        confirmText: '全部清空');
+    if (!ok || !context.mounted) return;
+    await StorageService.instance.clearAll();
+    _reloadAll(context);
+    if (context.mounted) showToast(context, '已清空, 回到初始状态');
+  }
+
+  void _reloadAll(BuildContext context) {
+    context.read<SettingsProvider>().load();
+    context.read<TaskProvider>().load();
+    context.read<HabitProvider>().load();
+    context.read<GoalProvider>().load();
+    context.read<ScheduleProvider>().load();
+    context.read<JournalProvider>().load();
+    context.read<PomodoroProvider>().reloadFromStorage();
+  }
+}
+
+class _SliderRow extends StatelessWidget {
+  final String label;
+  final String value;
+  final Widget child;
+
+  const _SliderRow({
+    required this.label,
+    required this.value,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.watch<SettingsProvider>().currentTheme;
+    return Column(
+      children: [
+        Row(
+          children: [
+            Text(label,
+                style: TextStyle(fontSize: 12, color: theme.foreground)),
+            const Spacer(),
+            Text(value,
+                style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: theme.primary)),
+          ],
+        ),
+        child,
       ],
     );
   }
 }
+
+class _SwitchRow extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  const _SwitchRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.watch<SettingsProvider>().currentTheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: theme.primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    style: TextStyle(
+                        fontSize: 13, color: theme.foreground)),
+                const SizedBox(height: 2),
+                Text(subtitle,
+                    style:
+                        TextStyle(fontSize: 10, color: theme.muted)),
+              ],
+            ),
+          ),
+          Transform.scale(
+            scale: 0.85,
+            child: Switch(
+              value: value,
+              activeColor: theme.primary,
+              onChanged: onChanged,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ActionRow extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  final bool danger;
+
+  const _ActionRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.danger = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.watch<SettingsProvider>().currentTheme;
+    final color = danger ? const Color(0xFFFF5252) : theme.primary;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        child: Row(
+          children: [
+            Icon(icon, size: 19, color: color),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                      style: TextStyle(
+                          fontSize: 13, color: color)),
+                  const SizedBox(height: 2),
+                  Text(subtitle,
+                      style: TextStyle(
+                          fontSize: 10, color: theme.muted)),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, size: 16, color: theme.muted),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 供外部调用时读取当前设置
+AppSettings currentSettings(BuildContext context) =>
+    context.read<SettingsProvider>().settings;
+
+String todayLabel() => shortDate(DateTime.now());
