@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../core/utils.dart';
 import '../models/task.dart';
 import '../providers/settings_provider.dart';
+import '../providers/task_provider.dart';
 import 'ui.dart';
 
 class TaskItemWidget extends StatelessWidget {
@@ -13,6 +14,7 @@ class TaskItemWidget extends StatelessWidget {
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
   final VoidCallback? onFocus;
+  final VoidCallback? onSchedule;
   final bool showDate;
 
   const TaskItemWidget({
@@ -22,6 +24,7 @@ class TaskItemWidget extends StatelessWidget {
     this.onEdit,
     this.onDelete,
     this.onFocus,
+    this.onSchedule,
     this.showDate = true,
   });
 
@@ -103,6 +106,18 @@ class TaskItemWidget extends StatelessWidget {
                     if (task.tags.isNotEmpty)
                       for (final tag in task.tags.take(3))
                         TinyBadge(text: '#$tag', color: theme.accent),
+                    if (task.hasSubtasks)
+                      TinyBadge(
+                        text: '子任务 ${task.subtaskDone}/${task.subtasks.length}',
+                        color: const Color(0xFF7E57C2),
+                        icon: Icons.checklist_rtl,
+                      ),
+                    if (task.repeat.repeats)
+                      TinyBadge(
+                        text: task.repeat.label,
+                        color: theme.primary,
+                        icon: Icons.repeat,
+                      ),
                     TinyBadge(
                       text: '${task.completedPomodoros}/${task.estimatedPomodoros} 番茄',
                       color: const Color(0xFFF06292),
@@ -110,6 +125,54 @@ class TaskItemWidget extends StatelessWidget {
                     ),
                   ],
                 ),
+                if (task.hasSubtasks) ...[
+                  const SizedBox(height: 5),
+                  for (final s in task.subtasks.take(4))
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => context
+                          .read<TaskProvider>()
+                          .toggleSubtask(task.id, s.id),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Row(
+                          children: [
+                            Icon(
+                              s.isDone
+                                  ? Icons.check_circle_outline
+                                  : Icons.circle_outlined,
+                              size: 13,
+                              color: s.isDone ? theme.primary : theme.muted,
+                            ),
+                            const SizedBox(width: 5),
+                            Expanded(
+                              child: Text(
+                                s.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color:
+                                      s.isDone ? theme.muted : theme.foreground,
+                                  decoration: s.isDone
+                                      ? TextDecoration.lineThrough
+                                      : null,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  if (task.subtasks.length > 4)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        '还有 ${task.subtasks.length - 4} 项…',
+                        style: TextStyle(fontSize: 10, color: theme.muted),
+                      ),
+                    ),
+                ],
                 if (task.notes.isNotEmpty) ...[
                   const SizedBox(height: 4),
                   Text(
@@ -139,6 +202,7 @@ class TaskItemWidget extends StatelessWidget {
               color: theme.cardBackground,
               onSelected: (v) {
                 if (v == 'edit') onEdit?.call();
+                if (v == 'schedule') onSchedule?.call();
                 if (v == 'delete') onDelete?.call();
               },
               itemBuilder: (_) => [
@@ -146,6 +210,12 @@ class TaskItemWidget extends StatelessWidget {
                   PopupMenuItem(
                     value: 'edit',
                     child: Text('编辑',
+                        style: TextStyle(fontSize: 13, color: theme.foreground)),
+                  ),
+                if (onSchedule != null && !task.isCompleted)
+                  PopupMenuItem(
+                    value: 'schedule',
+                    child: Text('安排到日程',
                         style: TextStyle(fontSize: 13, color: theme.foreground)),
                   ),
                 if (onDelete != null)

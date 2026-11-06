@@ -38,9 +38,12 @@ class _TaskEditorState extends State<_TaskEditor> {
   late final TextEditingController _title;
   late final TextEditingController _notes;
   late final TextEditingController _tags;
+  late final TextEditingController _subtaskInput;
   late TaskPriority _priority;
   late int _estimate;
   DateTime? _dueDate;
+  late List<Subtask> _subtasks;
+  late RepeatRule _repeat;
 
   @override
   void initState() {
@@ -49,9 +52,12 @@ class _TaskEditorState extends State<_TaskEditor> {
     _title = TextEditingController(text: t?.title ?? '');
     _notes = TextEditingController(text: t?.notes ?? '');
     _tags = TextEditingController(text: t?.tags.join(',') ?? '');
+    _subtaskInput = TextEditingController();
     _priority = t?.priority ?? TaskPriority.medium;
     _estimate = t?.estimatedPomodoros ?? 2;
     _dueDate = t?.dueDate;
+    _subtasks = List<Subtask>.from(t?.subtasks ?? []);
+    _repeat = t?.repeat ?? RepeatRule.none;
   }
 
   @override
@@ -59,7 +65,17 @@ class _TaskEditorState extends State<_TaskEditor> {
     _title.dispose();
     _notes.dispose();
     _tags.dispose();
+    _subtaskInput.dispose();
     super.dispose();
+  }
+
+  void _addSubtask() {
+    final text = _subtaskInput.text.trim();
+    if (text.isEmpty) return;
+    setState(() {
+      _subtasks.add(Subtask(title: text));
+      _subtaskInput.clear();
+    });
   }
 
   @override
@@ -165,6 +181,110 @@ class _TaskEditorState extends State<_TaskEditor> {
           ],
         ),
         const SizedBox(height: 14),
+        Text('重复', style: TextStyle(fontSize: 12, color: theme.muted)),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          children: RepeatRule.values.map((r) {
+            return PillChip(
+              label: r.label,
+              selected: _repeat == r,
+              onTap: () => setState(() => _repeat = r),
+            );
+          }).toList(),
+        ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Text('子任务', style: TextStyle(fontSize: 12, color: theme.muted)),
+            if (_subtasks.isNotEmpty) ...[
+              const SizedBox(width: 6),
+              Text(
+                '${_subtasks.where((s) => s.isDone).length}/${_subtasks.length}',
+                style: TextStyle(fontSize: 11, color: theme.primary),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 4),
+        ..._subtasks.map((s) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 1),
+            child: Row(
+              children: [
+                GestureDetector(
+                  onTap: () => setState(() {
+                    final idx = _subtasks.indexWhere((e) => e.id == s.id);
+                    if (idx >= 0) {
+                      _subtasks[idx] = s.copyWith(isDone: !s.isDone);
+                    }
+                  }),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(
+                      s.isDone
+                          ? Icons.check_circle
+                          : Icons.radio_button_unchecked,
+                      size: 18,
+                      color: s.isDone ? theme.primary : theme.muted,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: Text(
+                    s.title,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: s.isDone ? theme.muted : theme.foreground,
+                      decoration:
+                          s.isDone ? TextDecoration.lineThrough : null,
+                    ),
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () => setState(
+                      () => _subtasks.removeWhere((e) => e.id == s.id)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(Icons.close, size: 15, color: theme.muted),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _subtaskInput,
+                style: TextStyle(fontSize: 12, color: theme.foreground),
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _addSubtask(),
+                decoration: appInput(
+                  context: context,
+                  hint: '添加一个子任务, 回车确认',
+                  dense: true,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: _addSubtask,
+              child: Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: theme.primary.withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Icon(Icons.add, size: 17, color: theme.primary),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
         Row(
           children: [
             Text('预计番茄数', style: TextStyle(fontSize: 12, color: theme.muted)),
@@ -229,6 +349,8 @@ class _TaskEditorState extends State<_TaskEditor> {
         .where((e) => e.isNotEmpty)
         .toSet()
         .toList();
+    final due = _dueDate ??
+        (_repeat.repeats ? startOfDay(DateTime.now()) : null);
     final base = widget.existing ??
         Task(title: title, estimatedPomodoros: _estimate);
     final result = base.copyWith(
@@ -236,9 +358,11 @@ class _TaskEditorState extends State<_TaskEditor> {
       notes: _notes.text.trim(),
       priority: _priority,
       estimatedPomodoros: _estimate,
-      dueDate: _dueDate,
-      clearDueDate: _dueDate == null,
+      dueDate: due,
+      clearDueDate: due == null,
       tags: tags,
+      subtasks: _subtasks,
+      repeat: _repeat,
     );
     Navigator.pop(context, result);
   }

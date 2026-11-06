@@ -58,6 +58,20 @@ String durationText(int minutes) {
   return m == 0 ? '$h 小时' : '$h 小时 $m 分';
 }
 
+/// 稳定的字符串哈希(用于通知 ID), 返回非负整数
+int fnvHash(String input) {
+  var hash = 0x811c9dc5;
+  for (var i = 0; i < input.length; ++i) {
+    hash ^= input.codeUnitAt(i);
+    hash = (hash * 0x01000193) & 0x7fffffff;
+  }
+  return hash;
+}
+
+/// 某年某月的天数
+int daysInMonth(int year, int month) =>
+    DateTime(year, month + 1, 0).day;
+
 String greetingByHour() {
   final h = DateTime.now().hour;
   if (h < 6) return '夜深了';

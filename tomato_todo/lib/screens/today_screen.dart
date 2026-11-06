@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../core/utils.dart';
 import '../models/habit.dart';
 import '../models/schedule_event.dart';
+import '../models/task.dart';
 import '../providers/habit_provider.dart';
 import '../providers/journal_provider.dart';
 import '../providers/pomodoro_provider.dart';
@@ -18,10 +19,14 @@ import '../widgets/schedule_editor.dart';
 import '../widgets/task_input.dart';
 import '../widgets/task_item.dart';
 import '../widgets/ui.dart';
+import 'journal_history_screen.dart';
+import 'schedule_screen.dart';
 import 'settings_screen.dart';
 
 class TodayScreen extends StatelessWidget {
-  const TodayScreen({super.key});
+  final VoidCallback? onOpenTasks;
+
+  const TodayScreen({super.key, this.onOpenTasks});
 
   @override
   Widget build(BuildContext context) {
@@ -126,10 +131,27 @@ class TodayScreen extends StatelessWidget {
             title: '今日行程',
             subtitle:
                 '${schedule.todayEvents.length} 项 · 已规划 ${durationText(schedule.plannedMinutesOn(now))}',
-            trailing: _AddButton(
-              onTap: () => showScheduleEditor(context),
-              theme: theme,
-              label: '规划',
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                GestureDetector(
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const ScheduleScreen(),
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: Icon(Icons.calendar_view_week,
+                        size: 18, color: theme.primary),
+                  ),
+                ),
+                _AddButton(
+                  onTap: () => showScheduleEditor(context),
+                  theme: theme,
+                  label: '规划',
+                ),
+              ],
             ),
           ),
           if (schedule.todayEvents.isEmpty)
@@ -166,11 +188,31 @@ class TodayScreen extends StatelessWidget {
           // 今日待办
           SectionHeader(
             title: '今日待办',
-            subtitle: '进行中 ${tasks.activeCount} 项',
-            trailing: _AddButton(
-              onTap: () => showTaskEditor(context),
-              theme: theme,
-              label: '新建',
+            subtitle: '今日 ${tasks.todayTasks.length} 项 · 进行中 ${tasks.activeCount} 项',
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (onOpenTasks != null)
+                  GestureDetector(
+                    onTap: onOpenTasks,
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Text(
+                        '全部 ${tasks.activeCount} 项',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: theme.primary,
+                        ),
+                      ),
+                    ),
+                  ),
+                _AddButton(
+                  onTap: () => showTaskEditor(context),
+                  theme: theme,
+                  label: '新建',
+                ),
+              ],
             ),
           ),
           const QuickTaskInput(),
@@ -182,15 +224,33 @@ class TodayScreen extends StatelessWidget {
                 text: '今天还没有待办 · 快速记录或新建一项',
               ),
             )
-          else
+          else ...[
             ...tasks.todayTasks.take(5).map((t) => TaskItemWidget(
                   task: t,
                   showDate: false,
                   onToggle: () => tasks.toggleComplete(t.id),
                   onEdit: () => showTaskEditor(context, task: t),
-                  onDelete: () => _confirmDeleteTask(context, t.id),
+                  onDelete: () => _confirmDeleteTask(context, t),
                   onFocus: () => context.read<PomodoroProvider>().assignTask(t),
+                  onSchedule: () => showScheduleEditor(
+                    context,
+                    date: now,
+                    title: t.title,
+                    taskId: t.id,
+                  ),
                 )),
+            if (tasks.todayTasks.length > 5 && onOpenTasks != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 2, 20, 2),
+                child: GestureDetector(
+                  onTap: onOpenTasks,
+                  child: Text(
+                    '查看全部 ${tasks.todayTasks.length} 项 ›',
+                    style: TextStyle(fontSize: 11, color: theme.muted),
+                  ),
+                ),
+              ),
+          ],
           // 习惯打卡
           SectionHeader(
             title: '习惯打卡',
@@ -239,6 +299,21 @@ class TodayScreen extends StatelessWidget {
             subtitle: journal.entriesThisMonth == 0
                 ? '记录一天, 看见成长'
                 : '本月已记录 ${journal.entriesThisMonth} 天',
+            trailing: GestureDetector(
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const JournalHistoryScreen(),
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.only(right: 2),
+                child: Text('历史',
+                    style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: theme.primary)),
+              ),
+            ),
           ),
           AppCard(
             margin: const EdgeInsets.symmetric(horizontal: 20),
@@ -301,12 +376,17 @@ class TodayScreen extends StatelessWidget {
         color: theme.foreground.withOpacity(0.08),
       );
 
-  Future<void> _confirmDeleteTask(BuildContext context, String id) async {
+  Future<void> _confirmDeleteTask(BuildContext context, Task task) async {
     final ok = await showConfirmDialog(context,
-        title: '删除这个待办?', danger: true, confirmText: '删除');
-    if (ok && context.mounted) {
-      await context.read<TaskProvider>().deleteTask(id);
-    }
+        title: '删除「${task.title}」?', danger: true, confirmText: '删除');
+    if (!ok || !context.mounted) return;
+    final removed = await context.read<TaskProvider>().deleteTask(task.id);
+    if (removed == null || !context.mounted) return;
+    showUndoToast(
+      context,
+      '已删除「${removed.title}」',
+      onUndo: () => context.read<TaskProvider>().restoreTask(removed),
+    );
   }
 }
 

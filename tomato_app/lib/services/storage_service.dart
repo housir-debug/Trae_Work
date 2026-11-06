@@ -26,6 +26,7 @@ class StorageService {
   static const kGoals = 'goals';
   static const kEvents = 'schedule_events';
   static const kJournals = 'journal_entries';
+  static const kTimerState = 'timer_state';
 
   static const List<String> allKeys = [
     kSettings,
@@ -143,11 +144,22 @@ class StorageService {
         kJournals, jsonEncode(entries.map((e) => e.toJson()).toList()));
   }
 
+  // ------- 番茄钟计时快照 -------
+  String? loadTimerSnapshot() => _prefs.getString(kTimerState);
+
+  Future<void> saveTimerSnapshot(String? raw) async {
+    if (raw == null) {
+      await _prefs.remove(kTimerState);
+    } else {
+      await _prefs.setString(kTimerState, raw);
+    }
+  }
+
   // ------- 备份 -------
   String exportBackup() {
     final map = <String, dynamic>{
       'app': '时光秘书',
-      'version': 2,
+      'version': 3,
       'exportedAt': DateTime.now().toIso8601String(),
     };
     for (final k in allKeys) {

@@ -29,6 +29,20 @@ class AppSettings {
   String? pinHash;
   String? pinSalt;
 
+  /// 回前台后多久重新上锁(秒), 0 表示立即
+  int relockDelaySeconds;
+
+  // 提醒
+  bool remindersEnabled; // 总开关
+  int defaultEventReminder; // 日程默认提前分钟
+  bool dailyPlanReminderEnabled;
+  int dailyPlanReminderMinute; // 分钟数, 510 = 08:30
+  bool dailyReviewReminderEnabled;
+  int dailyReviewReminderMinute; // 1290 = 21:30
+
+  // 备份
+  bool autoBackupEnabled; // 每日自动快照
+
   AppSettings({
     this.workDuration = 25,
     this.shortBreakDuration = 5,
@@ -47,6 +61,14 @@ class AppSettings {
     this.appLockEnabled = false,
     this.pinHash,
     this.pinSalt,
+    this.relockDelaySeconds = 30,
+    this.remindersEnabled = true,
+    this.defaultEventReminder = 10,
+    this.dailyPlanReminderEnabled = true,
+    this.dailyPlanReminderMinute = 510,
+    this.dailyReviewReminderEnabled = false,
+    this.dailyReviewReminderMinute = 1290,
+    this.autoBackupEnabled = true,
   });
 
   AppSettings copyWith({
@@ -69,6 +91,14 @@ class AppSettings {
     String? pinHash,
     String? pinSalt,
     bool clearPin = false,
+    int? relockDelaySeconds,
+    bool? remindersEnabled,
+    int? defaultEventReminder,
+    bool? dailyPlanReminderEnabled,
+    int? dailyPlanReminderMinute,
+    bool? dailyReviewReminderEnabled,
+    int? dailyReviewReminderMinute,
+    bool? autoBackupEnabled,
   }) {
     return AppSettings(
       workDuration: workDuration ?? this.workDuration,
@@ -90,6 +120,19 @@ class AppSettings {
       appLockEnabled: appLockEnabled ?? this.appLockEnabled,
       pinHash: clearPin ? null : (pinHash ?? this.pinHash),
       pinSalt: clearPin ? null : (pinSalt ?? this.pinSalt),
+      relockDelaySeconds: relockDelaySeconds ?? this.relockDelaySeconds,
+      remindersEnabled: remindersEnabled ?? this.remindersEnabled,
+      defaultEventReminder:
+          defaultEventReminder ?? this.defaultEventReminder,
+      dailyPlanReminderEnabled:
+          dailyPlanReminderEnabled ?? this.dailyPlanReminderEnabled,
+      dailyPlanReminderMinute:
+          dailyPlanReminderMinute ?? this.dailyPlanReminderMinute,
+      dailyReviewReminderEnabled:
+          dailyReviewReminderEnabled ?? this.dailyReviewReminderEnabled,
+      dailyReviewReminderMinute:
+          dailyReviewReminderMinute ?? this.dailyReviewReminderMinute,
+      autoBackupEnabled: autoBackupEnabled ?? this.autoBackupEnabled,
     );
   }
 
@@ -111,6 +154,14 @@ class AppSettings {
         'appLockEnabled': appLockEnabled,
         'pinHash': pinHash,
         'pinSalt': pinSalt,
+        'relockDelaySeconds': relockDelaySeconds,
+        'remindersEnabled': remindersEnabled,
+        'defaultEventReminder': defaultEventReminder,
+        'dailyPlanReminderEnabled': dailyPlanReminderEnabled,
+        'dailyPlanReminderMinute': dailyPlanReminderMinute,
+        'dailyReviewReminderEnabled': dailyReviewReminderEnabled,
+        'dailyReviewReminderMinute': dailyReviewReminderMinute,
+        'autoBackupEnabled': autoBackupEnabled,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
@@ -132,5 +183,17 @@ class AppSettings {
         appLockEnabled: json['appLockEnabled'] as bool? ?? false,
         pinHash: json['pinHash'] as String?,
         pinSalt: json['pinSalt'] as String?,
+        relockDelaySeconds: json['relockDelaySeconds'] as int? ?? 30,
+        remindersEnabled: json['remindersEnabled'] as bool? ?? true,
+        defaultEventReminder: json['defaultEventReminder'] as int? ?? 10,
+        dailyPlanReminderEnabled:
+            json['dailyPlanReminderEnabled'] as bool? ?? true,
+        dailyPlanReminderMinute:
+            json['dailyPlanReminderMinute'] as int? ?? 510,
+        dailyReviewReminderEnabled:
+            json['dailyReviewReminderEnabled'] as bool? ?? false,
+        dailyReviewReminderMinute:
+            json['dailyReviewReminderMinute'] as int? ?? 1290,
+        autoBackupEnabled: json['autoBackupEnabled'] as bool? ?? true,
       );
 }

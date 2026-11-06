@@ -353,6 +353,29 @@ void showToast(BuildContext context, String message) {
     ));
 }
 
+/// 带撤销操作的提示
+void showUndoToast(
+  BuildContext context,
+  String message, {
+  required VoidCallback onUndo,
+}) {
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(
+      content: Text(message, style: const TextStyle(fontSize: 13)),
+      behavior: SnackBarBehavior.floating,
+      duration: const Duration(seconds: 4),
+      margin: const EdgeInsets.fromLTRB(20, 0, 20, 90),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      backgroundColor: const Color(0xEE2D2D2D),
+      action: SnackBarAction(
+        label: '撤销',
+        textColor: const Color(0xFF9BB8FF),
+        onPressed: onUndo,
+      ),
+    ));
+}
+
 InputDecoration appInput({
   required BuildContext context,
   String? hint,

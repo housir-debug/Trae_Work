@@ -23,6 +23,20 @@ class JournalProvider extends ChangeNotifier {
 
   JournalEntry? get todayEntry => entryFor(DateTime.now());
 
+  JournalEntry? entryForKey(String key) {
+    for (final e in _entries) {
+      if (e.dateKey == key) return e;
+    }
+    return null;
+  }
+
+  List<JournalEntry> entriesInMonth(int year, int month) {
+    return _entries.where((e) {
+      final d = DateTime.tryParse(e.dateKey);
+      return d != null && d.year == year && d.month == month;
+    }).toList();
+  }
+
   int get entriesThisMonth {
     final now = DateTime.now();
     return _entries.where((e) {

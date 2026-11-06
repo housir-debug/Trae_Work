@@ -22,6 +22,23 @@ class ScheduleProvider extends ChangeNotifier {
 
   List<ScheduleEvent> get todayEvents => eventsFor(DateTime.now());
 
+  /// 某天与给定时间段重叠的日程
+  List<ScheduleEvent> conflictsOn(
+    DateTime day,
+    int startMinute,
+    int endMinute, {
+    String? excludeId,
+  }) {
+    return eventsFor(day).where((e) {
+      if (e.id == excludeId) return false;
+      return e.startMinute < endMinute && startMinute < e.endMinute;
+    }).toList();
+  }
+
+  /// 某天(按分钟)是否有时间块
+  bool isBusy(DateTime day, int minute) =>
+      eventsFor(day).any((e) => e.startMinute <= minute && minute < e.endMinute);
+
   /// 本周各分类投入分钟
   Map<ScheduleCategory, int> categoryMinutesThisWeek() {
     final start = dateKey(startOfWeek(DateTime.now()));
@@ -29,6 +46,22 @@ class ScheduleProvider extends ChangeNotifier {
     final map = <ScheduleCategory, int>{};
     for (final e in _events) {
       if (e.dateKey.compareTo(start) < 0 || e.dateKey.compareTo(nowKey) > 0) {
+        continue;
+      }
+      map[e.category] = (map[e.category] ?? 0) + e.durationMinutes;
+    }
+    return map;
+  }
+
+  /// 最近 n 天(含今天)各分类投入分钟
+  Map<ScheduleCategory, int> categoryMinutesInDays(int days) {
+    final today = startOfDay(DateTime.now());
+    final startKey = dateKey(today.subtract(Duration(days: days - 1)));
+    final endKey = dateKey(today);
+    final map = <ScheduleCategory, int>{};
+    for (final e in _events) {
+      if (e.dateKey.compareTo(startKey) < 0 ||
+          e.dateKey.compareTo(endKey) > 0) {
         continue;
       }
       map[e.category] = (map[e.category] ?? 0) + e.durationMinutes;

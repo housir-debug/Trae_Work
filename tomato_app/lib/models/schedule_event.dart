@@ -43,6 +43,12 @@ class ScheduleEvent {
   String note;
   bool isDone;
 
+  /// 提醒提前分钟数: null 表示使用默认值, -1 表示不提醒, 0 表示准时
+  int? reminderMinutes;
+
+  /// 关联的待办任务 id
+  String? taskId;
+
   ScheduleEvent({
     String? id,
     required this.dateKey,
@@ -52,9 +58,21 @@ class ScheduleEvent {
     this.category = ScheduleCategory.work,
     this.note = '',
     this.isDone = false,
+    this.reminderMinutes,
+    this.taskId,
   }) : id = id ?? const Uuid().v4();
 
   int get durationMinutes => endMinute - startMinute;
+
+  DateTime get startDateTime {
+    final d = DateTime.tryParse(dateKey) ?? DateTime.now();
+    return DateTime(d.year, d.month, d.day, startMinute ~/ 60, startMinute % 60);
+  }
+
+  DateTime get endDateTime {
+    final d = DateTime.tryParse(dateKey) ?? DateTime.now();
+    return DateTime(d.year, d.month, d.day, endMinute ~/ 60, endMinute % 60);
+  }
 
   ScheduleEvent copyWith({
     String? dateKey,
@@ -64,6 +82,10 @@ class ScheduleEvent {
     ScheduleCategory? category,
     String? note,
     bool? isDone,
+    int? reminderMinutes,
+    bool clearReminder = false,
+    String? taskId,
+    bool clearTask = false,
   }) =>
       ScheduleEvent(
         id: id,
@@ -74,6 +96,9 @@ class ScheduleEvent {
         category: category ?? this.category,
         note: note ?? this.note,
         isDone: isDone ?? this.isDone,
+        reminderMinutes:
+            clearReminder ? null : (reminderMinutes ?? this.reminderMinutes),
+        taskId: clearTask ? null : (taskId ?? this.taskId),
       );
 
   Map<String, dynamic> toJson() => {
@@ -85,6 +110,8 @@ class ScheduleEvent {
         'category': category.index,
         'note': note,
         'isDone': isDone,
+        'reminderMinutes': reminderMinutes,
+        'taskId': taskId,
       };
 
   factory ScheduleEvent.fromJson(Map<String, dynamic> json) => ScheduleEvent(
@@ -97,5 +124,7 @@ class ScheduleEvent {
             (json['category'] as int? ?? 0).clamp(0, 5).toInt()],
         note: json['note'] as String? ?? '',
         isDone: json['isDone'] as bool? ?? false,
+        reminderMinutes: json['reminderMinutes'] as int?,
+        taskId: json['taskId'] as String?,
       );
 }

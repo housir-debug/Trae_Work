@@ -1,4 +1,4 @@
-// widgets/schedule_editor.dart - 时间块编辑弹层
+// widgets/schedule_editor.dart - 时间块编辑弹层(含提醒与冲突检测)
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -8,17 +8,40 @@ import '../providers/schedule_provider.dart';
 import '../providers/settings_provider.dart';
 import 'ui.dart';
 
-Future<void> showScheduleEditor(BuildContext context, {ScheduleEvent? event}) async {
+Future<void> showScheduleEditor(
+  BuildContext context, {
+  ScheduleEvent? event,
+  DateTime? date,
+  String? title,
+  String? taskId,
+  int? startMinute,
+}) async {
   await showAppSheet<void>(
     context,
-    child: _ScheduleEditor(existing: event),
+    child: _ScheduleEditor(
+      existing: event,
+      initialDate: date,
+      initialTitle: title,
+      initialTaskId: taskId,
+      initialStart: startMinute,
+    ),
   );
 }
 
 class _ScheduleEditor extends StatefulWidget {
   final ScheduleEvent? existing;
+  final DateTime? initialDate;
+  final String? initialTitle;
+  final String? initialTaskId;
+  final int? initialStart;
 
-  const _ScheduleEditor({this.existing});
+  const _ScheduleEditor({
+    this.existing,
+    this.initialDate,
+    this.initialTitle,
+    this.initialTaskId,
+    this.initialStart,
+  });
 
   @override
   State<_ScheduleEditor> createState() => _ScheduleEditorState();
@@ -30,18 +53,24 @@ class _ScheduleEditorState extends State<_ScheduleEditor> {
   late int _start;
   late int _end;
   late ScheduleCategory _category;
+  late String _dateKey;
+  int? _reminder;
 
   @override
   void initState() {
     super.initState();
     final e = widget.existing;
-    _title = TextEditingController(text: e?.title ?? '');
+    _title = TextEditingController(text: e?.title ?? widget.initialTitle ?? '');
     _note = TextEditingController(text: e?.note ?? '');
     final now = DateTime.now();
     final rounded = ((now.hour * 60 + now.minute + 29) ~/ 30) * 30;
-    _start = e?.startMinute ?? rounded.clamp(6 * 60, 22 * 60).toInt();
-    _end = e?.endMinute ?? (_start + 60);
+    _start = e?.startMinute ??
+        widget.initialStart ??
+        rounded.clamp(6 * 60, 22 * 60).toInt();
+    _end = e?.endMinute ?? (_start + 60).clamp(_start + 15, 24 * 60).toInt();
     _category = e?.category ?? ScheduleCategory.work;
+    _dateKey = e?.dateKey ?? dateKey(widget.initialDate ?? now);
+    _reminder = e?.reminderMinutes;
   }
 
   @override
@@ -62,17 +91,29 @@ class _ScheduleEditorState extends State<_ScheduleEditor> {
     setState(() {
       if (isStart) {
         _start = minutes;
-        if (_end <= _start) _end = _start + 30;
+        if (_end <= _start) _end = (_start + 30).clamp(_start + 15, 24 * 60).toInt();
       } else {
         _end = minutes > _start ? minutes : _start + 30;
       }
     });
   }
 
+  Future<void> _pickDate() async {
+    final initial = DateTime.tryParse(_dateKey) ?? DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime.now().subtract(const Duration(days: 30)),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    if (picked != null) setState(() => _dateKey = dateKey(picked));
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = context.watch<SettingsProvider>().currentTheme;
     final isEditing = widget.existing != null;
+    final day = DateTime.tryParse(_dateKey) ?? DateTime.now();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -93,6 +134,35 @@ class _ScheduleEditorState extends State<_ScheduleEditor> {
           style: TextStyle(fontSize: 14, color: theme.foreground),
           decoration: appInput(context: context, hint: '这段时间用来做什么?')
               .copyWith(counterText: ''),
+        ),
+        const SizedBox(height: 8),
+        Text('日期', style: TextStyle(fontSize: 12, color: theme.muted)),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          children: [
+            PillChip(
+              label: '今天',
+              selected: isSameDate(day, DateTime.now()),
+              onTap: () => setState(() => _dateKey = dateKey(DateTime.now())),
+            ),
+            PillChip(
+              label: '明天',
+              selected: isSameDate(
+                  day, DateTime.now().add(const Duration(days: 1))),
+              onTap: () => setState(() => _dateKey =
+                  dateKey(DateTime.now().add(const Duration(days: 1)))),
+            ),
+            PillChip(
+              label: isSameDate(day, DateTime.now()) ||
+                      isSameDate(day, DateTime.now().add(const Duration(days: 1)))
+                  ? '选择日期'
+                  : shortDate(day),
+              icon: Icons.calendar_today_outlined,
+              onTap: _pickDate,
+            ),
+          ],
         ),
         const SizedBox(height: 12),
         Text('分类', style: TextStyle(fontSize: 12, color: theme.muted)),
@@ -136,7 +206,7 @@ class _ScheduleEditorState extends State<_ScheduleEditor> {
                     style: TextStyle(fontSize: 10, color: theme.muted)),
                 const SizedBox(height: 2),
                 Text(
-                  durationText(_end - _start),
+                  durationText((_end - _start).clamp(0, 24 * 60).toInt()),
                   style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
@@ -144,6 +214,22 @@ class _ScheduleEditorState extends State<_ScheduleEditor> {
                 ),
               ],
             ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Text('提醒', style: TextStyle(fontSize: 12, color: theme.muted)),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          children: [
+            _reminderChip('默认', null),
+            _reminderChip('不提醒', -1),
+            _reminderChip('准时', 0),
+            _reminderChip('提前5分', 5),
+            _reminderChip('提前10分', 10),
+            _reminderChip('提前15分', 15),
+            _reminderChip('提前30分', 30),
           ],
         ),
         const SizedBox(height: 12),
@@ -193,26 +279,55 @@ class _ScheduleEditorState extends State<_ScheduleEditor> {
     );
   }
 
+  Widget _reminderChip(String label, int? value) {
+    return PillChip(
+      label: label,
+      selected: _reminder == value,
+      onTap: () => setState(() => _reminder = value),
+    );
+  }
+
   Future<void> _save() async {
     final title = _title.text.trim();
     if (title.isEmpty) {
       showToast(context, '请填写日程标题');
       return;
     }
+    if (_end <= _start) {
+      showToast(context, '结束时间需要晚于开始时间');
+      return;
+    }
     final provider = context.read<ScheduleProvider>();
+    final day = DateTime.tryParse(_dateKey) ?? DateTime.now();
+    final conflicts = provider.conflictsOn(day, _start, _end,
+        excludeId: widget.existing?.id);
+    if (conflicts.isNotEmpty) {
+      final ok = await showConfirmDialog(
+        context,
+        title: '时间冲突',
+        content: '与「${conflicts.first.title}」(${timeText(conflicts.first.startMinute)}-${timeText(conflicts.first.endMinute)}) 重叠, 仍要保存吗?',
+        confirmText: '仍然保存',
+      );
+      if (!ok || !mounted) return;
+    }
+
     final base = widget.existing ??
         ScheduleEvent(
-          dateKey: dateKey(DateTime.now()),
+          dateKey: _dateKey,
           title: title,
           startMinute: _start,
           endMinute: _end,
+          taskId: widget.initialTaskId,
         );
     final result = base.copyWith(
+      dateKey: _dateKey,
       title: title,
       startMinute: _start,
       endMinute: _end,
       category: _category,
       note: _note.text.trim(),
+      reminderMinutes: _reminder,
+      clearReminder: _reminder == null,
     );
     if (widget.existing == null) {
       await provider.add(result);

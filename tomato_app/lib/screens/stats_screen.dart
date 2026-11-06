@@ -1,10 +1,11 @@
-// screens/stats_screen.dart - 多维度数据统计
+// screens/stats_screen.dart - 多维度数据统计(周期切换 + 数据洞察)
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
 
 import '../core/utils.dart';
 import '../models/journal_entry.dart';
+import '../models/pomodoro_record.dart';
 import '../models/schedule_event.dart';
 import '../providers/goal_provider.dart';
 import '../providers/habit_provider.dart';
@@ -16,9 +17,25 @@ import '../providers/task_provider.dart';
 import '../theme/backgrounds.dart';
 import '../widgets/heatmap_calendar.dart';
 import '../widgets/ui.dart';
+import 'weekly_report_screen.dart';
 
-class StatsScreen extends StatelessWidget {
+class StatsScreen extends StatefulWidget {
   const StatsScreen({super.key});
+
+  @override
+  State<StatsScreen> createState() => _StatsScreenState();
+}
+
+class _ChartPoint {
+  final String label;
+  final int value;
+  final bool highlight;
+
+  const _ChartPoint(this.label, this.value, this.highlight);
+}
+
+class _StatsScreenState extends State<StatsScreen> {
+  int _days = 7;
 
   @override
   Widget build(BuildContext context) {
@@ -31,18 +48,20 @@ class StatsScreen extends StatelessWidget {
     final journal = context.watch<JournalProvider>();
 
     final now = DateTime.now();
-    final weekStart = startOfWeek(now);
-    final weekFocus = pomo.workMinutesLastDays(7);
-    final weekTotal = weekFocus.fold<int>(0, (a, b) => a + b);
     final today = startOfDay(now);
+    final start = today.subtract(Duration(days: _days - 1));
+    final end = today.add(const Duration(days: 1));
 
-    final weekTaskDone = tasks.completedBetween(weekStart, today.add(const Duration(days: 1)));
-    final weekChecks = habits.totalChecksBetween(
-        weekStart, today.add(const Duration(days: 1)));
+    final focusData = pomo.workMinutesLastDays(_days);
+    final focusTotal = focusData.fold<int>(0, (a, b) => a + b);
+    final focusCount = pomo.workCountLastDays(_days).fold<int>(0, (a, b) => a + b);
+    final taskDone = tasks.completedBetween(start, end);
+    final habitChecks = habits.totalChecksBetween(start, end);
+    final points = _buckets(focusData, _days);
 
     final activity = <String, int>{};
     for (final r in pomo.records) {
-      if (r.type.name != 'work') continue;
+      if (r.type != PomodoroType.work) continue;
       final key = dateKey(r.completedAt);
       activity[key] = (activity[key] ?? 0) + r.durationMinutes;
     }
@@ -58,23 +77,85 @@ class StatsScreen extends StatelessWidget {
       }
     }
 
+    final bestHour = _bestHour(pomo.records, start, end);
+    final accuracy = _accuracy(tasks, start, end);
+    final bestDay = _bestDay(focusData);
+
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
-            child: Column(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('数据中心',
-                    style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w700,
-                        color: theme.foreground)),
-                const SizedBox(height: 3),
-                Text('用数据看见自己的节奏与成长',
-                    style: TextStyle(fontSize: 11, color: theme.muted)),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('数据中心',
+                          style: TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w700,
+                              color: theme.foreground)),
+                      const SizedBox(height: 3),
+                      Text('用数据看见自己的节奏与成长',
+                          style: TextStyle(fontSize: 11, color: theme.muted)),
+                    ],
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const WeeklyReportScreen(),
+                    ),
+                  ),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: theme.primary.withOpacity(0.10),
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.auto_awesome,
+                            size: 13, color: theme.primary),
+                        const SizedBox(width: 4),
+                        Text('周报',
+                            style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: theme.primary)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+            child: Row(
+              children: [
+                PillChip(
+                  label: '7 天',
+                  selected: _days == 7,
+                  onTap: () => setState(() => _days = 7),
+                ),
+                const SizedBox(width: 8),
+                PillChip(
+                  label: '30 天',
+                  selected: _days == 30,
+                  onTap: () => setState(() => _days = 30),
+                ),
+                const SizedBox(width: 8),
+                PillChip(
+                  label: '90 天',
+                  selected: _days == 90,
+                  onTap: () => setState(() => _days = 90),
+                ),
               ],
             ),
           ),
@@ -89,11 +170,11 @@ class StatsScreen extends StatelessWidget {
                       child: _OverviewCard(
                         icon: Icons.timer_outlined,
                         color: theme.primary,
-                        label: '本周专注',
-                        value: weekTotal >= 60
-                            ? '${(weekTotal / 60).toStringAsFixed(1)}'
-                            : '$weekTotal',
-                        unit: weekTotal >= 60 ? '小时' : '分钟',
+                        label: '专注时长',
+                        value: focusTotal >= 60
+                            ? (focusTotal / 60).toStringAsFixed(1)
+                            : '$focusTotal',
+                        unit: focusTotal >= 60 ? '小时' : '分钟',
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -101,8 +182,8 @@ class StatsScreen extends StatelessWidget {
                       child: _OverviewCard(
                         icon: Icons.task_alt,
                         color: theme.accent,
-                        label: '本周完成待办',
-                        value: '$weekTaskDone',
+                        label: '完成待办',
+                        value: '$taskDone',
                         unit: '项',
                       ),
                     ),
@@ -115,8 +196,8 @@ class StatsScreen extends StatelessWidget {
                       child: _OverviewCard(
                         icon: Icons.repeat,
                         color: const Color(0xFF6BCB9D),
-                        label: '本周习惯打卡',
-                        value: '$weekChecks',
+                        label: '习惯打卡',
+                        value: '$habitChecks',
                         unit: '次',
                       ),
                     ),
@@ -135,8 +216,11 @@ class StatsScreen extends StatelessWidget {
               ],
             ),
           ),
-          // 本周专注柱状图
-          SectionHeader(title: '本周专注趋势', subtitle: '共 $weekTotal 分钟'),
+          // 专注柱状图
+          SectionHeader(
+            title: '近 $_days 天专注趋势',
+            subtitle: '共 $focusTotal 分钟 · $focusCount 个番茄',
+          ),
           AppCard(
             margin: const EdgeInsets.symmetric(horizontal: 20),
             padding: const EdgeInsets.fromLTRB(10, 18, 14, 10),
@@ -144,23 +228,23 @@ class StatsScreen extends StatelessWidget {
               height: 170,
               child: BarChart(
                 BarChartData(
-                  maxY: _maxY(weekFocus),
-                  barGroups: List.generate(7, (i) {
-                    final d = weekStart.add(Duration(days: i));
-                    final isToday = isSameDate(d, now);
+                  maxY: _maxY(points),
+                  barGroups: List.generate(points.length, (i) {
                     return BarChartGroupData(
                       x: i,
                       barRods: [
                         BarChartRodData(
-                          toY: weekFocus[i].toDouble(),
-                          color: isToday
+                          toY: points[i].value.toDouble(),
+                          color: points[i].highlight
                               ? theme.accent
                               : theme.primary.withOpacity(0.75),
-                          width: 20,
+                          width: points.length <= 7
+                              ? 20
+                              : (points.length <= 5 ? 26 : 10),
                           borderRadius: BorderRadius.circular(6),
                           backDrawRodData: BackgroundBarChartRodData(
                             show: true,
-                            toY: _maxY(weekFocus),
+                            toY: _maxY(points),
                             color: theme.primary.withOpacity(0.04),
                           ),
                         ),
@@ -180,18 +264,23 @@ class StatsScreen extends StatelessWidget {
                         showTitles: true,
                         reservedSize: 26,
                         getTitlesWidget: (v, meta) {
-                          final d = weekStart.add(Duration(days: v.toInt()));
-                          final isToday = isSameDate(d, now);
+                          final idx = v.toInt();
+                          if (idx < 0 || idx >= points.length) {
+                            return const SizedBox.shrink();
+                          }
+                          if (points.length > 7 && idx.isOdd) {
+                            return const SizedBox.shrink();
+                          }
                           return Padding(
                             padding: const EdgeInsets.only(top: 6),
                             child: Text(
-                              weekdayShort(d),
+                              points[idx].label,
                               style: TextStyle(
-                                fontSize: 10,
-                                color: isToday
+                                fontSize: points.length > 7 ? 8.5 : 10,
+                                color: points[idx].highlight
                                     ? theme.accent
                                     : theme.muted,
-                                fontWeight: isToday
+                                fontWeight: points[idx].highlight
                                     ? FontWeight.w700
                                     : FontWeight.w400,
                               ),
@@ -205,7 +294,7 @@ class StatsScreen extends StatelessWidget {
                   gridData: FlGridData(
                     show: true,
                     drawVerticalLine: false,
-                    horizontalInterval: _maxY(weekFocus) / 3,
+                    horizontalInterval: _maxY(points) / 3,
                     getDrawingHorizontalLine: (_) => FlLine(
                       color: theme.foreground.withOpacity(0.06),
                       strokeWidth: 1,
@@ -213,12 +302,12 @@ class StatsScreen extends StatelessWidget {
                   ),
                   barTouchData: BarTouchData(
                     touchTooltipData: BarTouchTooltipData(
-                      getTooltipColor: (_) => theme.foreground.withOpacity(0.85),
+                      getTooltipColor: (_) =>
+                          theme.foreground.withOpacity(0.85),
                       getTooltipItem: (group, groupIndex, rod, rodIndex) =>
                           BarTooltipItem(
                         '${rod.toY.round()} 分钟',
-                        const TextStyle(
-                            color: Colors.white, fontSize: 11),
+                        const TextStyle(color: Colors.white, fontSize: 11),
                       ),
                     ),
                   ),
@@ -226,11 +315,65 @@ class StatsScreen extends StatelessWidget {
               ),
             ),
           ),
+          // 数据洞察
+          SectionHeader(title: '数据洞察', subtitle: '帮你调整节奏'),
+          AppCard(
+            margin: const EdgeInsets.symmetric(horizontal: 20),
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+            child: Column(
+              children: [
+                _InsightRow(
+                  icon: Icons.schedule,
+                  color: theme.primary,
+                  title: '最佳专注时段',
+                  value: bestHour == null
+                      ? '暂无记录'
+                      : _hourLabel(bestHour),
+                  hint: '把最难的事放在这里',
+                ),
+                _InsightRow(
+                  icon: Icons.track_changes,
+                  color: theme.accent,
+                  title: '估时准确度',
+                  value: accuracy == null
+                      ? '暂无数据'
+                      : '${(accuracy * 100).round()}%',
+                  hint: '完成番茄 / 预计番茄',
+                ),
+                _InsightRow(
+                  icon: Icons.local_fire_department_outlined,
+                  color: const Color(0xFFFF8E53),
+                  title: '连续专注天数',
+                  value: '${pomo.focusStreak} 天',
+                  hint: '每天一个番茄也算',
+                ),
+                _InsightRow(
+                  icon: Icons.event_busy,
+                  color: const Color(0xFFFF5252),
+                  title: '逾期未完成',
+                  value: '${tasks.overdueTasks.length} 项',
+                  hint: '及时调整或放弃',
+                ),
+                _InsightRow(
+                  icon: Icons.wb_sunny_outlined,
+                  color: const Color(0xFF6BCB9D),
+                  title: '最高光的一天',
+                  value: bestDay ?? '暂无记录',
+                  hint: '专注时长最长',
+                  showDivider: false,
+                ),
+              ],
+            ),
+          ),
           // 时间分配
-          SectionHeader(title: '本周时间投入', subtitle: '来自你规划的时间块'),
+          SectionHeader(
+            title: '近 $_days 天时间投入',
+            subtitle: '来自你规划的时间块',
+          ),
           _TimeAllocationCard(
-            categoryMinutes: schedule.categoryMinutesThisWeek(),
+            categoryMinutes: schedule.categoryMinutesInDays(_days),
             theme: theme,
+            emptyText: '这段时间还没有时间块安排\n到今日页规划你的行程',
           ),
           // 习惯坚持率
           SectionHeader(title: '习惯坚持率', subtitle: '近 30 天'),
@@ -357,7 +500,8 @@ class StatsScreen extends StatelessWidget {
                   ),
           ),
           // 复盘回顾
-          SectionHeader(title: '复盘与心情', subtitle: '本月 ${journal.entriesThisMonth} 天'),
+          SectionHeader(
+              title: '复盘与心情', subtitle: '本月 ${journal.entriesThisMonth} 天'),
           _JournalOverviewCard(journal: journal, theme: theme),
           // 热力图
           SectionHeader(title: '活动热力图', subtitle: '近 12 周'),
@@ -375,10 +519,143 @@ class StatsScreen extends StatelessWidget {
     );
   }
 
-  double _maxY(List<int> data) {
-    final maxVal = data.fold<int>(0, (a, b) => a > b ? a : b);
+  List<_ChartPoint> _buckets(List<int> daily, int days) {
+    final today = startOfDay(DateTime.now());
+    if (days <= 7) {
+      return List.generate(days, (i) {
+        final d = today.subtract(Duration(days: days - 1 - i));
+        return _ChartPoint(weekdayShort(d), daily[i], isSameDate(d, today));
+      });
+    }
+    final count = (days / 7).ceil();
+    return List.generate(count, (i) {
+      final startIdx = i * 7;
+      final endIdx = ((i + 1) * 7).clamp(startIdx, days);
+      final sum = daily.sublist(startIdx, endIdx).fold<int>(0, (a, b) => a + b);
+      final d = today.subtract(Duration(days: days - 1 - startIdx));
+      return _ChartPoint(shortDate(d), sum, i == count - 1);
+    });
+  }
+
+  double _maxY(List<_ChartPoint> points) {
+    final maxVal =
+        points.fold<int>(0, (a, b) => a > b.value ? a : b.value);
     if (maxVal <= 0) return 60;
     return (maxVal * 1.25).toDouble();
+  }
+
+  int? _bestHour(List<PomodoroRecord> records, DateTime start, DateTime end) {
+    final map = <int, int>{};
+    for (final r in records) {
+      if (r.type != PomodoroType.work) continue;
+      if (r.completedAt.isBefore(start) || !r.completedAt.isBefore(end)) {
+        continue;
+      }
+      final h = r.startedAt.hour;
+      map[h] = (map[h] ?? 0) + r.durationMinutes;
+    }
+    if (map.isEmpty) return null;
+    return map.entries.reduce((a, b) => a.value >= b.value ? a : b).key;
+  }
+
+  String _hourLabel(int hour) =>
+      '${hour.toString().padLeft(2, '0')}:00-${((hour + 1) % 24).toString().padLeft(2, '0')}:00';
+
+  double? _accuracy(TaskProvider tasks, DateTime start, DateTime end) {
+    final finished = tasks.tasks.where((t) {
+      if (!t.isCompleted || t.estimatedPomodoros <= 0) return false;
+      final c = t.completedAt;
+      return c != null && !c.isBefore(start) && c.isBefore(end);
+    }).toList();
+    if (finished.isEmpty) return null;
+    final sum = finished.fold<double>(0, (acc, t) {
+      final ratio = t.completedPomodoros / t.estimatedPomodoros;
+      return acc + (ratio > 1 ? 1.0 : ratio);
+    });
+    return sum / finished.length;
+  }
+
+  String? _bestDay(List<int> daily) {
+    if (daily.isEmpty) return null;
+    var maxIdx = -1;
+    var maxVal = 0;
+    for (var i = 0; i < daily.length; i++) {
+      if (daily[i] > maxVal) {
+        maxVal = daily[i];
+        maxIdx = i;
+      }
+    }
+    if (maxIdx < 0 || maxVal == 0) return null;
+    final d = startOfDay(DateTime.now())
+        .subtract(Duration(days: daily.length - 1 - maxIdx));
+    return '${shortDate(d)} ($maxVal 分钟)';
+  }
+}
+
+class _InsightRow extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String value;
+  final String hint;
+  final bool showDivider;
+
+  const _InsightRow({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.value,
+    required this.hint,
+    this.showDivider = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.watch<SettingsProvider>().currentTheme;
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 7),
+          child: Row(
+            children: [
+              Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Icon(icon, size: 15, color: color),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        style: TextStyle(
+                            fontSize: 11.5, color: theme.foreground)),
+                    Text(hint,
+                        style:
+                            TextStyle(fontSize: 9, color: theme.muted)),
+                  ],
+                ),
+              ),
+              Text(value,
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: color)),
+            ],
+          ),
+        ),
+        if (showDivider)
+          Divider(
+            height: 1,
+            color: theme.foreground.withOpacity(0.05),
+          ),
+      ],
+    );
   }
 }
 
@@ -453,10 +730,12 @@ class _OverviewCard extends StatelessWidget {
 class _TimeAllocationCard extends StatelessWidget {
   final Map<ScheduleCategory, int> categoryMinutes;
   final ThemeDef theme;
+  final String emptyText;
 
   const _TimeAllocationCard({
     required this.categoryMinutes,
     required this.theme,
+    this.emptyText = '还没有时间块安排',
   });
 
   @override
@@ -471,10 +750,10 @@ class _TimeAllocationCard extends StatelessWidget {
       margin: const EdgeInsets.symmetric(horizontal: 20),
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
       child: entries.isEmpty
-          ? const EmptyHint(
+          ? EmptyHint(
               icon: Icons.pie_chart_outline,
-              text: '本周还没有时间块安排\n到今日页规划你的行程',
-              padding: EdgeInsets.symmetric(vertical: 12),
+              text: emptyText,
+              padding: const EdgeInsets.symmetric(vertical: 12),
             )
           : Column(
               children: [

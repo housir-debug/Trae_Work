@@ -87,9 +87,31 @@ class TaskProvider extends ChangeNotifier {
     final idx = _tasks.indexWhere((t) => t.id == id);
     if (idx < 0) return;
     final t = _tasks[idx];
-    _tasks[idx] = t.isCompleted
-        ? t.copyWith(isCompleted: false, clearCompletedAt: true)
-        : t.copyWith(isCompleted: true, completedAt: DateTime.now());
+    final completing = !t.isCompleted;
+    _tasks[idx] = completing
+        ? t.copyWith(isCompleted: true, completedAt: DateTime.now())
+        : t.copyWith(isCompleted: false, clearCompletedAt: true);
+
+    // 重复任务完成后自动生成下一次
+    if (completing && t.repeat.repeats) {
+      final nextDue = t.repeat.nextOccurrence(t.dueDate ?? DateTime.now());
+      _tasks.insert(
+        0,
+        Task(
+          title: t.title,
+          notes: t.notes,
+          priority: t.priority,
+          estimatedPomodoros: t.estimatedPomodoros,
+          dueDate: nextDue,
+          tags: List<String>.from(t.tags),
+          subtasks: t.subtasks
+              .map((s) => s.copyWith(isDone: false))
+              .toList(growable: false),
+          repeat: t.repeat,
+        ),
+      );
+    }
+
     await _persist();
     notifyListeners();
   }
@@ -104,8 +126,34 @@ class TaskProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> deleteTask(String id) async {
-    _tasks.removeWhere((t) => t.id == id);
+  /// 删除并返回被删除的任务(用于撤销)
+  Future<Task?> deleteTask(String id) async {
+    final idx = _tasks.indexWhere((t) => t.id == id);
+    if (idx < 0) return null;
+    final removed = _tasks.removeAt(idx);
+    await _persist();
+    notifyListeners();
+    return removed;
+  }
+
+  /// 撤销删除
+  Future<void> restoreTask(Task task) async {
+    if (_tasks.any((t) => t.id == task.id)) return;
+    _tasks.insert(0, task);
+    await _persist();
+    notifyListeners();
+  }
+
+  /// 勾选 / 取消子任务
+  Future<void> toggleSubtask(String taskId, String subtaskId) async {
+    final idx = _tasks.indexWhere((t) => t.id == taskId);
+    if (idx < 0) return;
+    final t = _tasks[idx];
+    _tasks[idx] = t.copyWith(
+      subtasks: t.subtasks.map((s) {
+        return s.id == subtaskId ? s.copyWith(isDone: !s.isDone) : s;
+      }).toList(growable: false),
+    );
     await _persist();
     notifyListeners();
   }

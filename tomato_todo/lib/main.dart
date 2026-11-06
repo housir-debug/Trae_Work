@@ -1,4 +1,5 @@
 // main.dart - 时光秘书 入口 / 主题 / 背景 / 底部导航
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 
@@ -20,8 +21,14 @@ import 'screens/lock_screen.dart';
 import 'screens/stats_screen.dart';
 import 'screens/tasks_screen.dart';
 import 'screens/today_screen.dart';
+import 'services/backup_service.dart';
+import 'services/notification_service.dart';
 import 'services/storage_service.dart';
 import 'theme/backgrounds.dart';
+
+/// 全局导航, 重新上锁时用于收起已打开的页面
+final GlobalKey<NavigatorState> appNavigatorKey =
+    GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -30,6 +37,7 @@ void main() async {
     DeviceOrientation.portraitDown,
   ]);
   await StorageService.instance.init();
+  await NotificationService.instance.init();
   runApp(const ShiguangApp());
 }
 
@@ -48,6 +56,7 @@ class _ShiguangAppState extends State<ShiguangApp> {
   late final ScheduleProvider _scheduleProv;
   late final JournalProvider _journalProv;
   late final PomodoroProvider _pomoProv;
+  Timer? _syncDebounce;
 
   @override
   void initState() {
@@ -59,6 +68,7 @@ class _ShiguangAppState extends State<ShiguangApp> {
     _scheduleProv = ScheduleProvider(StorageService.instance)..load();
     _journalProv = JournalProvider(StorageService.instance)..load();
     _pomoProv = PomodoroProvider(StorageService.instance)
+      ..notifications = NotificationService.instance
       ..init(_settingsProv.settings);
 
     // 完成专注 -> 累加关联任务的番茄
@@ -68,14 +78,41 @@ class _ShiguangAppState extends State<ShiguangApp> {
       }
     };
 
-    // 设置变化时同步计时器参数
+    // 设置变化时同步计时器参数与提醒
     _settingsProv.addListener(() {
       _pomoProv.updateSettings(_settingsProv.settings);
+      _scheduleNotificationSync();
     });
+    // 日程变化时重新安排提醒
+    _scheduleProv.addListener(_scheduleNotificationSync);
+
+    _syncNotifications();
+    _bootstrapBackup();
+  }
+
+  Future<void> _bootstrapBackup() async {
+    if (!_settingsProv.settings.autoBackupEnabled) return;
+    await BackupService(StorageService.instance).autoSnapshotIfNeeded();
+  }
+
+  /// 合并短时间内的多次变更, 避免频繁取消/重排通知
+  void _scheduleNotificationSync() {
+    _syncDebounce?.cancel();
+    _syncDebounce = Timer(const Duration(milliseconds: 500), () {
+      _syncNotifications();
+    });
+  }
+
+  Future<void> _syncNotifications() async {
+    final notifications = NotificationService.instance;
+    final settings = _settingsProv.settings;
+    await notifications.syncDailyReminders(settings);
+    await notifications.syncEventReminders(_scheduleProv.events, settings);
   }
 
   @override
   void dispose() {
+    _syncDebounce?.cancel();
     _settingsProv.dispose();
     _taskProv.dispose();
     _habitProv.dispose();
@@ -102,6 +139,7 @@ class _ShiguangAppState extends State<ShiguangApp> {
         builder: (ctx, sp, _) {
           final theme = sp.currentTheme;
           return MaterialApp(
+            navigatorKey: appNavigatorKey,
             title: '时光秘书',
             debugShowCheckedModeBanner: false,
             theme: ThemeData(
@@ -120,7 +158,8 @@ class _ShiguangAppState extends State<ShiguangApp> {
               ),
             ),
             home: RootGate(
-              initiallyLocked: sp.settings.appLockEnabled,
+              initiallyLocked: sp.settings.appLockEnabled &&
+                  sp.settings.pinHash != null,
             ),
           );
         },
@@ -139,13 +178,67 @@ class RootGate extends StatefulWidget {
   State<RootGate> createState() => _RootGateState();
 }
 
-class _RootGateState extends State<RootGate> {
+class _RootGateState extends State<RootGate> with WidgetsBindingObserver {
   late bool _locked = widget.initiallyLocked;
+  bool _wasBackground = false;
+  Timer? _relockTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _relockTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _wasBackground = true;
+      _relockTimer?.cancel();
+      _relockTimer = null;
+    } else if (state == AppLifecycleState.resumed) {
+      // 回到前台先按真实时间校准番茄钟
+      try {
+        context.read<PomodoroProvider>().syncFromClock();
+      } catch (_) {}
+      if (_wasBackground && !_locked) {
+        final settings = context.read<SettingsProvider>().settings;
+        if (settings.appLockEnabled && settings.pinHash != null) {
+          final delay = settings.relockDelaySeconds;
+          _relockTimer?.cancel();
+          if (delay <= 0) {
+            _lockNow();
+          } else {
+            _relockTimer = Timer(Duration(seconds: delay), _lockNow);
+          }
+        }
+      }
+      _wasBackground = false;
+    }
+  }
+
+  /// 收起已打开的页面并上锁
+  void _lockNow() {
+    appNavigatorKey.currentState?.popUntil((route) => route.isFirst);
+    if (mounted) setState(() => _locked = true);
+  }
 
   @override
   Widget build(BuildContext context) {
     if (_locked) {
-      return LockScreen(onUnlocked: () => setState(() => _locked = false));
+      return LockScreen(
+        onUnlocked: () {
+          _relockTimer?.cancel();
+          setState(() => _locked = false);
+        },
+      );
     }
     return const RootPage();
   }
@@ -162,13 +255,13 @@ class RootPage extends StatefulWidget {
 class _RootPageState extends State<RootPage> {
   int _idx = 0;
 
-  static const _screens = [
-    TodayScreen(),
-    TasksScreen(),
-    HabitsScreen(),
-    GoalsScreen(),
-    StatsScreen(),
-  ];
+  List<Widget> get _screens => [
+        TodayScreen(onOpenTasks: () => setState(() => _idx = 1)),
+        const TasksScreen(),
+        const HabitsScreen(),
+        const GoalsScreen(),
+        const StatsScreen(),
+      ];
 
   @override
   Widget build(BuildContext context) {

@@ -8,15 +8,17 @@ import '../providers/journal_provider.dart';
 import '../providers/settings_provider.dart';
 import 'ui.dart';
 
-Future<void> showJournalEditor(BuildContext context) async {
+Future<void> showJournalEditor(BuildContext context, {JournalEntry? entry}) async {
   await showAppSheet<void>(
     context,
-    child: const _JournalEditor(),
+    child: _JournalEditor(existing: entry),
   );
 }
 
 class _JournalEditor extends StatefulWidget {
-  const _JournalEditor();
+  final JournalEntry? existing;
+
+  const _JournalEditor({this.existing});
 
   @override
   State<_JournalEditor> createState() => _JournalEditorState();
@@ -28,11 +30,14 @@ class _JournalEditorState extends State<_JournalEditor> {
   late final TextEditingController _note;
   late int _mood;
   late int _energy;
+  late String _dateKey;
 
   @override
   void initState() {
     super.initState();
-    final entry = context.read<JournalProvider>().todayEntry;
+    final entry =
+        widget.existing ?? context.read<JournalProvider>().todayEntry;
+    _dateKey = entry?.dateKey ?? dateKey(DateTime.now());
     _highlight = TextEditingController(text: entry?.highlight ?? '');
     _gratitude = TextEditingController(text: entry?.gratitude ?? '');
     _note = TextEditingController(text: entry?.note ?? '');
@@ -51,7 +56,9 @@ class _JournalEditorState extends State<_JournalEditor> {
   @override
   Widget build(BuildContext context) {
     final theme = context.watch<SettingsProvider>().currentTheme;
-    final existing = context.read<JournalProvider>().todayEntry;
+    final existing =
+        context.read<JournalProvider>().entryForKey(_dateKey);
+    final date = DateTime.tryParse(_dateKey) ?? DateTime.now();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -59,13 +66,13 @@ class _JournalEditorState extends State<_JournalEditor> {
       children: [
         Row(
           children: [
-            Text('今日复盘',
+            Text('每日复盘',
                 style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
                     color: theme.foreground)),
             const Spacer(),
-            Text(friendlyDate(DateTime.now()),
+            Text(shortDate(date),
                 style: TextStyle(fontSize: 11, color: theme.muted)),
           ],
         ),
@@ -165,9 +172,10 @@ class _JournalEditorState extends State<_JournalEditor> {
 
   Future<void> _save() async {
     final provider = context.read<JournalProvider>();
+    final existing = provider.entryForKey(_dateKey);
     final entry = JournalEntry(
-      id: provider.todayEntry?.id,
-      dateKey: dateKey(DateTime.now()),
+      id: existing?.id,
+      dateKey: _dateKey,
       mood: _mood,
       energy: _energy,
       highlight: _highlight.text.trim(),

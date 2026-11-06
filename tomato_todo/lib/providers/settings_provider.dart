@@ -84,6 +84,39 @@ class SettingsProvider extends ChangeNotifier {
     await update(_settings.copyWith(enableVibrate: !_settings.enableVibrate));
   }
 
+  // ---------- 提醒 ----------
+  Future<void> setRemindersEnabled(bool v) async {
+    await update(_settings.copyWith(remindersEnabled: v));
+  }
+
+  Future<void> setDefaultEventReminder(int minutes) async {
+    await update(_settings.copyWith(defaultEventReminder: minutes));
+  }
+
+  Future<void> setDailyPlanReminder({bool? enabled, int? minute}) async {
+    await update(_settings.copyWith(
+      dailyPlanReminderEnabled: enabled,
+      dailyPlanReminderMinute: minute,
+    ));
+  }
+
+  Future<void> setDailyReviewReminder({bool? enabled, int? minute}) async {
+    await update(_settings.copyWith(
+      dailyReviewReminderEnabled: enabled,
+      dailyReviewReminderMinute: minute,
+    ));
+  }
+
+  // ---------- 安全 ----------
+  Future<void> setRelockDelay(int seconds) async {
+    await update(_settings.copyWith(relockDelaySeconds: seconds));
+  }
+
+  // ---------- 备份 ----------
+  Future<void> setAutoBackup(bool v) async {
+    await update(_settings.copyWith(autoBackupEnabled: v));
+  }
+
   // ---------- 应用锁 ----------
   Future<void> enableAppLock(String pin) async {
     final salt = generateSalt();

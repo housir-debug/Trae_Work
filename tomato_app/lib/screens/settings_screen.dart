@@ -1,8 +1,10 @@
 // screens/settings_screen.dart - 设置中心
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../core/utils.dart';
 import '../models/app_settings.dart';
@@ -13,12 +15,15 @@ import '../providers/pomodoro_provider.dart';
 import '../providers/schedule_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/task_provider.dart';
+import '../services/backup_service.dart';
 import '../services/storage_service.dart';
 import '../theme/backgrounds.dart';
 import '../widgets/ui.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
+
+  BackupService get _backup => BackupService(StorageService.instance);
 
   @override
   Widget build(BuildContext context) {
@@ -154,15 +159,107 @@ class SettingsScreen extends StatelessWidget {
                 ],
               ),
             ),
-            // ---------------- 反馈 ----------------
+            // ---------------- 反馈与提醒 ----------------
             SectionHeader(
               title: '提醒与反馈',
+              subtitle: '本地通知, 不依赖网络',
               margin: const EdgeInsets.fromLTRB(0, 24, 0, 10),
             ),
             AppCard(
               padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
               child: Column(
                 children: [
+                  _SwitchRow(
+                    icon: Icons.notifications_active_outlined,
+                    title: '提醒总开关',
+                    subtitle: '关闭后不再发送日程与每日提醒',
+                    value: settings.remindersEnabled,
+                    onChanged: (v) => sp.setRemindersEnabled(v),
+                  ),
+                  Divider(
+                      height: 1,
+                      color: theme.foreground.withOpacity(0.06)),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.schedule,
+                            size: 18, color: theme.primary),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('日程默认提前提醒',
+                                  style: TextStyle(
+                                      fontSize: 13,
+                                      color: theme.foreground)),
+                              const SizedBox(height: 4),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 4,
+                                children: [
+                                  for (final m in [0, 5, 10, 15, 30])
+                                    PillChip(
+                                      label: m == 0 ? '准时' : '$m 分钟',
+                                      selected:
+                                          settings.defaultEventReminder == m,
+                                      onTap: () =>
+                                          sp.setDefaultEventReminder(m),
+                                    ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Divider(
+                      height: 1,
+                      color: theme.foreground.withOpacity(0.06)),
+                  _ReminderRow(
+                    icon: Icons.wb_sunny_outlined,
+                    title: '每日计划提醒',
+                    subtitle: '提醒你查看今天的待办与行程',
+                    value: settings.dailyPlanReminderEnabled,
+                    timeLabel: _minuteText(
+                        settings.dailyPlanReminderMinute),
+                    onChanged: (v) =>
+                        sp.setDailyPlanReminder(enabled: v),
+                    onTimeTap: () async {
+                      final picked = await _pickMinute(context,
+                          settings.dailyPlanReminderMinute);
+                      if (picked != null) {
+                        await sp.setDailyPlanReminder(enabled: true, minute: picked);
+                      }
+                    },
+                  ),
+                  Divider(
+                      height: 1,
+                      color: theme.foreground.withOpacity(0.06)),
+                  _ReminderRow(
+                    icon: Icons.nights_stay_outlined,
+                    title: '每日复盘提醒',
+                    subtitle: '晚上提醒你记录心情与收获',
+                    value: settings.dailyReviewReminderEnabled,
+                    timeLabel: _minuteText(
+                        settings.dailyReviewReminderMinute),
+                    onChanged: (v) =>
+                        sp.setDailyReviewReminder(enabled: v),
+                    onTimeTap: () async {
+                      final picked = await _pickMinute(context,
+                          settings.dailyReviewReminderMinute);
+                      if (picked != null) {
+                        await sp.setDailyReviewReminder(
+                            enabled: true, minute: picked);
+                      }
+                    },
+                  ),
+                  Divider(
+                      height: 1,
+                      color: theme.foreground.withOpacity(0.06)),
                   _SwitchRow(
                     icon: Icons.vibration,
                     title: '完成时震动',
@@ -366,6 +463,57 @@ class SettingsScreen extends StatelessWidget {
                   Divider(
                       height: 1,
                       color: theme.foreground.withOpacity(0.06)),
+                  if (settings.appLockEnabled)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.timer_outlined,
+                              size: 17, color: theme.primary),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('回前台重新上锁',
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        color: theme.foreground)),
+                                const SizedBox(height: 2),
+                                Text('离开应用超过设定时间后需要再次输入密码',
+                                    style: TextStyle(
+                                        fontSize: 10,
+                                        color: theme.muted)),
+                                const SizedBox(height: 5),
+                                Wrap(
+                                  spacing: 6,
+                                  runSpacing: 4,
+                                  children: [
+                                    for (final s in [0, 30, 60, 300])
+                                      PillChip(
+                                        label: s == 0
+                                            ? '立即'
+                                            : s == 300
+                                                ? '5 分钟'
+                                                : s < 60
+                                                    ? '$s 秒'
+                                                    : '${s ~/ 60} 分钟',
+                                        selected:
+                                            settings.relockDelaySeconds == s,
+                                        onTap: () => sp.setRelockDelay(s),
+                                      ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  Divider(
+                      height: 1,
+                      color: theme.foreground.withOpacity(0.06)),
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 10),
                     child: Row(
@@ -399,13 +547,35 @@ class SettingsScreen extends StatelessWidget {
               child: Column(
                 children: [
                   _ActionRow(
-                    icon: Icons.upload_file_outlined,
-                    title: '导出备份',
-                    subtitle: '复制全部数据到剪贴板',
+                    icon: Icons.ios_share,
+                    title: '导出备份文件',
+                    subtitle: '生成 JSON 备份并分享或保存',
+                    onTap: () => _exportFile(context),
+                  ),
+                  _ActionRow(
+                    icon: Icons.folder_open_outlined,
+                    title: '从文件恢复',
+                    subtitle: '选择之前导出的备份文件',
+                    onTap: () => _importFile(context),
+                  ),
+                  _SwitchRow(
+                    icon: Icons.backup_outlined,
+                    title: '自动每日快照',
+                    subtitle: '每天首次打开时自动备份, 保留最近 14 份',
+                    value: settings.autoBackupEnabled,
+                    onChanged: (v) => sp.setAutoBackup(v),
+                  ),
+                  Divider(
+                      height: 1,
+                      color: theme.foreground.withOpacity(0.06)),
+                  _ActionRow(
+                    icon: Icons.content_copy,
+                    title: '复制备份到剪贴板',
+                    subtitle: '适合快速粘贴保存',
                     onTap: () => _export(context),
                   ),
                   _ActionRow(
-                    icon: Icons.download_outlined,
+                    icon: Icons.content_paste,
                     title: '从剪贴板恢复',
                     subtitle: '粘贴之前导出的备份内容',
                     onTap: () => _import(context),
@@ -458,7 +628,7 @@ class SettingsScreen extends StatelessWidget {
                                 fontWeight: FontWeight.w700,
                                 color: theme.foreground)),
                         const SizedBox(height: 2),
-                        Text('版本 2.0.0 · 专属个人的时间管理秘书',
+                        Text('版本 2.1.0 · 专属个人的时间管理秘书',
                             style: TextStyle(
                                 fontSize: 10, color: theme.muted)),
                         Text('无需会员 · 无广告 · 全部功能开放',
@@ -574,6 +744,52 @@ class SettingsScreen extends StatelessWidget {
     }
   }
 
+  Future<void> _exportFile(BuildContext context) async {
+    try {
+      final path = await _backup.createBackup();
+      await Share.shareXFiles([XFile(path)], text: '时光秘书 · 数据备份');
+      if (context.mounted) showToast(context, '备份已生成');
+    } catch (e) {
+      if (context.mounted) showToast(context, '生成备份失败: $e');
+    }
+  }
+
+  Future<void> _importFile(BuildContext context) async {
+    try {
+      final file = await openFile(acceptedTypeGroups: [
+        const XTypeGroup(label: '备份文件', extensions: ['json']),
+      ]);
+      if (file == null) return;
+      final raw = await file.readAsString();
+      if (!context.mounted) return;
+      final ok = await showConfirmDialog(context,
+          title: '从文件恢复?',
+          content: '导入后将覆盖当前全部数据, 确定继续吗?',
+          confirmText: '恢复');
+      if (!ok || !context.mounted) return;
+      await StorageService.instance.importBackup(raw);
+      if (!context.mounted) return;
+      _reloadAll(context);
+      if (context.mounted) showToast(context, '数据已恢复');
+    } catch (e) {
+      if (context.mounted) showToast(context, '恢复失败, 备份文件无效');
+    }
+  }
+
+  String _minuteText(int minute) =>
+      '${(minute ~/ 60).toString().padLeft(2, '0')}:'
+      '${(minute % 60).toString().padLeft(2, '0')}';
+
+  Future<int?> _pickMinute(BuildContext context, int current) async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime:
+          TimeOfDay(hour: current ~/ 60, minute: current % 60),
+    );
+    if (picked == null) return null;
+    return picked.hour * 60 + picked.minute;
+  }
+
   Future<void> _export(BuildContext context) async {
     final data = StorageService.instance.exportBackup();
     await Clipboard.setData(ClipboardData(text: data));
@@ -584,6 +800,7 @@ class SettingsScreen extends StatelessWidget {
 
   Future<void> _import(BuildContext context) async {
     final data = await Clipboard.getData(Clipboard.kTextPlain);
+    if (!context.mounted) return;
     final text = data?.text?.trim();
     if (text == null || text.isEmpty) {
       if (context.mounted) showToast(context, '剪贴板为空');
@@ -596,6 +813,7 @@ class SettingsScreen extends StatelessWidget {
     if (!ok || !context.mounted) return;
     try {
       await StorageService.instance.importBackup(text);
+      if (!context.mounted) return;
       _reloadAll(context);
       if (context.mounted) showToast(context, '数据已恢复');
     } catch (e) {
@@ -611,6 +829,7 @@ class SettingsScreen extends StatelessWidget {
         confirmText: '全部清空');
     if (!ok || !context.mounted) return;
     await StorageService.instance.clearAll();
+    if (!context.mounted) return;
     _reloadAll(context);
     if (context.mounted) showToast(context, '已清空, 回到初始状态');
   }
@@ -695,6 +914,85 @@ class _SwitchRow extends StatelessWidget {
                 Text(subtitle,
                     style:
                         TextStyle(fontSize: 10, color: theme.muted)),
+              ],
+            ),
+          ),
+          Transform.scale(
+            scale: 0.85,
+            child: Switch(
+              value: value,
+              activeColor: theme.primary,
+              onChanged: onChanged,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReminderRow extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool value;
+  final String timeLabel;
+  final ValueChanged<bool> onChanged;
+  final VoidCallback onTimeTap;
+
+  const _ReminderRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.timeLabel,
+    required this.onChanged,
+    required this.onTimeTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.watch<SettingsProvider>().currentTheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: theme.primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    style: TextStyle(fontSize: 13, color: theme.foreground)),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(subtitle,
+                          style:
+                              TextStyle(fontSize: 10, color: theme.muted)),
+                    ),
+                    if (value)
+                      GestureDetector(
+                        onTap: onTimeTap,
+                        child: Container(
+                          margin: const EdgeInsets.only(left: 4),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 7, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: theme.primary.withOpacity(0.10),
+                            borderRadius: BorderRadius.circular(7),
+                          ),
+                          child: Text(timeLabel,
+                              style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  color: theme.primary)),
+                        ),
+                      ),
+                  ],
+                ),
               ],
             ),
           ),

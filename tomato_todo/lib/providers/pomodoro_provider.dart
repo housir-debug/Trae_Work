@@ -1,4 +1,6 @@
-// providers/pomodoro_provider.dart - 番茄钟状态
+// providers/pomodoro_provider.dart - 番茄钟状态(含后台恢复与通知)
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -6,6 +8,7 @@ import '../core/utils.dart';
 import '../models/app_settings.dart';
 import '../models/pomodoro_record.dart';
 import '../models/task.dart';
+import '../services/notification_service.dart';
 import '../services/storage_service.dart';
 import '../services/timer_service.dart';
 
@@ -17,6 +20,9 @@ class PomodoroProvider extends ChangeNotifier {
   int _completedWorkCount = 0;
   String? _currentTaskId;
   String? _currentTaskTitle;
+
+  /// 可注入的通知服务(由 main 注入)
+  NotificationService? notifications;
 
   /// 完成一个专注阶段时回调(用于给任务累加番茄)
   void Function(PomodoroRecord record, String? taskId)? onWorkCompleted;
@@ -37,14 +43,29 @@ class PomodoroProvider extends ChangeNotifier {
   String? get currentTaskId => _currentTaskId;
   String? get currentTaskTitle => _currentTaskTitle;
 
-  String get timeDisplay =>
-      _timer?.formatTime(remainingSeconds) ?? '--:--';
+  String get timeDisplay => _timer?.formatTime(remainingSeconds) ?? '--:--';
 
   void init(AppSettings settings) {
     _settings = settings;
     _completedWorkCount = _storage.loadCompletedWorkCount();
     _records = _storage.loadRecords();
+
+    TimerSnapshot? snapshot;
+    final raw = _storage.loadTimerSnapshot();
+    if (raw != null) {
+      try {
+        snapshot =
+            TimerSnapshot.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+      } catch (_) {
+        snapshot = null;
+      }
+    }
+
     _timer = _buildTimer(settings);
+    if (snapshot != null) {
+      _timer!.restoreSnapshot(snapshot);
+    }
+    _syncTimerNotification();
     notifyListeners();
   }
 
@@ -52,6 +73,7 @@ class PomodoroProvider extends ChangeNotifier {
         settings: settings,
         onTick: () => notifyListeners(),
         onPhaseChange: (_) => notifyListeners(),
+        onStateChanged: _persistTimer,
         onPhaseComplete: (record) {
           final enriched = PomodoroRecord(
             id: record.id,
@@ -64,9 +86,9 @@ class PomodoroProvider extends ChangeNotifier {
           );
           _records.add(enriched);
           _storage.saveRecords(_records);
-          _completedWorkCount = _timer!.completedWorkCount;
-          _storage.saveCompletedWorkCount(_completedWorkCount);
           if (enriched.type == PomodoroType.work) {
+            _completedWorkCount++;
+            _storage.saveCompletedWorkCount(_completedWorkCount);
             onWorkCompleted?.call(enriched, _currentTaskId);
           }
           if (_settings.enableVibrate) {
@@ -75,11 +97,12 @@ class PomodoroProvider extends ChangeNotifier {
           if (_settings.showNotification) {
             SystemSound.play(SystemSoundType.alert);
           }
+          notifications?.cancelTimerEnd();
           notifyListeners();
 
           if (_timer!.settings.autoStartNext) {
             Future.delayed(const Duration(milliseconds: 800), () {
-              _timer?.start();
+              start();
             });
           }
         },
@@ -92,15 +115,21 @@ class PomodoroProvider extends ChangeNotifier {
         old.shortBreakDuration != settings.shortBreakDuration ||
         old.longBreakDuration != settings.longBreakDuration;
     _timer?.applySettings(settings, resetDuration: durationChanged);
+    _syncTimerNotification();
+    notifyListeners();
   }
 
   void start() {
     _timer?.start();
+    _persistTimer();
+    _syncTimerNotification();
     notifyListeners();
   }
 
   void pause() {
     _timer?.pause();
+    _persistTimer();
+    _syncTimerNotification();
     notifyListeners();
   }
 
@@ -118,16 +147,30 @@ class PomodoroProvider extends ChangeNotifier {
 
   void reset() {
     _timer?.reset();
+    _persistTimer();
+    notifications?.cancelTimerEnd();
     notifyListeners();
   }
 
   void skipPhase() {
     _timer?.skipPhase();
+    _persistTimer();
+    _syncTimerNotification();
     notifyListeners();
   }
 
   void setPhase(TimerPhase p) {
     _timer?.setPhase(p);
+    _persistTimer();
+    _syncTimerNotification();
+    notifyListeners();
+  }
+
+  /// 回到前台时按真实时间校准
+  void syncFromClock() {
+    _timer?.syncFromClock();
+    _persistTimer();
+    _syncTimerNotification();
     notifyListeners();
   }
 
@@ -135,6 +178,29 @@ class PomodoroProvider extends ChangeNotifier {
     _currentTaskId = task?.id;
     _currentTaskTitle = task?.title;
     notifyListeners();
+  }
+
+  void _persistTimer() {
+    final t = _timer;
+    if (t == null) return;
+    _storage.saveTimerSnapshot(jsonEncode(t.snapshot().toJson()));
+  }
+
+  void _syncTimerNotification() {
+    final t = _timer;
+    if (t == null || notifications == null) return;
+    if (t.state == TimerState.running &&
+        t.phaseEnd != null &&
+        _settings.showNotification) {
+      final isWork = t.phase == TimerPhase.work;
+      notifications!.scheduleTimerEnd(
+        end: t.phaseEnd!,
+        title: isWork ? '专注完成' : '休息结束',
+        body: isWork ? '辛苦了, 起来走走, 让眼睛休息一下' : '休息结束, 继续专注吧',
+      );
+    } else {
+      notifications!.cancelTimerEnd();
+    }
   }
 
   // ---------- 统计 ----------
@@ -191,6 +257,8 @@ class PomodoroProvider extends ChangeNotifier {
     _storage.saveRecords(_records);
     _storage.saveCompletedWorkCount(0);
     _timer?.reset();
+    _storage.saveTimerSnapshot(null);
+    notifications?.cancelTimerEnd();
     notifyListeners();
   }
 
@@ -199,6 +267,8 @@ class PomodoroProvider extends ChangeNotifier {
     _records = _storage.loadRecords();
     _completedWorkCount = _storage.loadCompletedWorkCount();
     _timer?.reset();
+    _storage.saveTimerSnapshot(null);
+    notifications?.cancelTimerEnd();
     notifyListeners();
   }
 }

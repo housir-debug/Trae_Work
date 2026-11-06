@@ -7,6 +7,7 @@ import '../models/task.dart';
 import '../providers/pomodoro_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/task_provider.dart';
+import '../widgets/schedule_editor.dart';
 import '../widgets/task_input.dart';
 import '../widgets/task_item.dart';
 import '../widgets/ui.dart';
@@ -160,7 +161,7 @@ class _TasksScreenState extends State<TasksScreen> {
               if (dueToday.isNotEmpty) _group('今天', dueToday),
               if (dueWeek.isNotEmpty) _group('本周', dueWeek),
               if (later.isNotEmpty) _group('之后', later),
-              if (noDue.isNotEmpty) _group('无期限', noDue),
+              if (noDue.isNotEmpty) _group('收集箱', noDue),
             ],
           ] else ...[
             if (provider.completedTasks.isEmpty)
@@ -199,14 +200,25 @@ class _TasksScreenState extends State<TasksScreen> {
       onEdit: () => showTaskEditor(context, task: t),
       onDelete: () => _delete(t),
       onFocus: () => context.read<PomodoroProvider>().assignTask(t),
+      onSchedule: () => showScheduleEditor(
+        context,
+        date: t.dueDate ?? DateTime.now(),
+        title: t.title,
+        taskId: t.id,
+      ),
     );
   }
 
   Future<void> _delete(Task t) async {
     final ok = await showConfirmDialog(context,
         title: '删除「${t.title}」?', danger: true, confirmText: '删除');
-    if (ok && mounted) {
-      await context.read<TaskProvider>().deleteTask(t.id);
-    }
+    if (!ok || !mounted) return;
+    final removed = await context.read<TaskProvider>().deleteTask(t.id);
+    if (removed == null || !mounted) return;
+    showUndoToast(
+      context,
+      '已删除「${removed.title}」',
+      onUndo: () => context.read<TaskProvider>().restoreTask(removed),
+    );
   }
 }
