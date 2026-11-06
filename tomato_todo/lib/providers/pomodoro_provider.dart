@@ -207,6 +207,13 @@ class PomodoroProvider extends ChangeNotifier {
     _storage.saveTimerSnapshot(jsonEncode(t.snapshot().toJson()));
   }
 
+  /// 切后台时确保 timer 快照、records 都落盘
+  Future<void> flush() async {
+    _persistTimer();
+    _storage.saveRecords(_records);
+    _storage.saveCompletedWorkCount(_completedWorkCount);
+  }
+
   void _syncTimerNotification() {
     final t = _timer;
     if (t == null || notifications == null) return;
@@ -292,6 +299,19 @@ class PomodoroProvider extends ChangeNotifier {
     notifications?.cancelTimerEnd();
     _emitTick();
     notifyListeners();
+  }
+
+  /// 清理超过 [days] 天的番茄记录, 返回清理条数(默认 365 天)
+  Future<int> pruneRecordsOlderThan({int days = 365}) async {
+    final cutoff = DateTime.now().subtract(Duration(days: days));
+    final before = _records.length;
+    _records.removeWhere((r) => r.completedAt.isBefore(cutoff));
+    final removed = before - _records.length;
+    if (removed > 0) {
+      await _storage.saveRecords(_records);
+      notifyListeners();
+    }
+    return removed;
   }
 
   @override

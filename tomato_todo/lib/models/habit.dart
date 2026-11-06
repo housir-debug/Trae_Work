@@ -10,6 +10,7 @@ class Habit {
   int colorValue;
   int targetPerWeek; // 1-7
   Set<String> checkIns; // yyyy-MM-dd
+  Map<String, DateTime> checkInTimes; // yyyy-MM-dd -> 精确打卡时间(新增, 迁移数据为空)
   DateTime createdAt;
   bool archived;
 
@@ -20,15 +21,22 @@ class Habit {
     this.colorValue = 0xFF6BCB9D,
     this.targetPerWeek = 7,
     Set<String>? checkIns,
+    Map<String, DateTime>? checkInTimes,
     DateTime? createdAt,
     this.archived = false,
   })  : id = id ?? const Uuid().v4(),
         checkIns = checkIns ?? <String>{},
+        checkInTimes = checkInTimes ?? <String, DateTime>{},
         createdAt = createdAt ?? DateTime.now();
 
   bool get isDaily => targetPerWeek >= 7;
 
   bool checkedOn(DateTime day) => checkIns.contains(dateKey(day));
+
+  /// 某天的精确打卡时间(老数据可能没有, 返回 null)
+  DateTime? checkInTimeOn(DateTime day) {
+    return checkInTimes[dateKey(day)];
+  }
 
   bool get doneToday => checkedOn(DateTime.now());
 
@@ -82,6 +90,7 @@ class Habit {
     int? colorValue,
     int? targetPerWeek,
     Set<String>? checkIns,
+    Map<String, DateTime>? checkInTimes,
     bool? archived,
   }) =>
       Habit(
@@ -91,6 +100,7 @@ class Habit {
         colorValue: colorValue ?? this.colorValue,
         targetPerWeek: targetPerWeek ?? this.targetPerWeek,
         checkIns: checkIns ?? this.checkIns,
+        checkInTimes: checkInTimes ?? this.checkInTimes,
         createdAt: createdAt,
         archived: archived ?? this.archived,
       );
@@ -102,24 +112,39 @@ class Habit {
         'colorValue': colorValue,
         'targetPerWeek': targetPerWeek,
         'checkIns': checkIns.toList(),
+        'checkInTimes': checkInTimes
+            .map((k, v) => MapEntry(k, v.toIso8601String())),
         'createdAt': createdAt.toIso8601String(),
         'archived': archived,
       };
 
-  factory Habit.fromJson(Map<String, dynamic> json) => Habit(
-        id: json['id'] as String,
-        name: json['name'] as String,
-        emoji: json['emoji'] as String? ?? '✅',
-        colorValue: json['colorValue'] as int? ?? 0xFF6BCB9D,
-        targetPerWeek:
-            (json['targetPerWeek'] as int? ?? 7).clamp(1, 7).toInt(),
-        checkIns: (json['checkIns'] as List?)
-                ?.map((e) => e.toString())
-                .toSet() ??
-            <String>{},
-        createdAt: json['createdAt'] != null
-            ? DateTime.parse(json['createdAt'] as String)
-            : DateTime.now(),
-        archived: json['archived'] as bool? ?? false,
-      );
+  factory Habit.fromJson(Map<String, dynamic> json) {
+    final checkIns = (json['checkIns'] as List?)
+            ?.map((e) => e.toString())
+            .toSet() ??
+        <String>{};
+    final rawTimes = json['checkInTimes'] as Map<String, dynamic>?;
+    final checkInTimes = <String, DateTime>{};
+    if (rawTimes != null) {
+      rawTimes.forEach((k, v) {
+        final dt = DateTime.tryParse(v.toString());
+        if (dt != null) checkInTimes[k] = dt;
+      });
+    }
+    // 兼容老数据: 如果 checkIns 有值但 checkInTimes 为空, 不补齐(保持 null, UI 上只显示日期)
+    return Habit(
+      id: json['id'] as String,
+      name: json['name'] as String,
+      emoji: json['emoji'] as String? ?? '✅',
+      colorValue: json['colorValue'] as int? ?? 0xFF6BCB9D,
+      targetPerWeek:
+          (json['targetPerWeek'] as int? ?? 7).clamp(1, 7).toInt(),
+      checkIns: checkIns,
+      checkInTimes: checkInTimes,
+      createdAt: json['createdAt'] != null
+          ? DateTime.parse(json['createdAt'] as String)
+          : DateTime.now(),
+      archived: json['archived'] as bool? ?? false,
+    );
+  }
 }

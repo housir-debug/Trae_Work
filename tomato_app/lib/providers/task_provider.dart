@@ -282,4 +282,19 @@ class TaskProvider extends ChangeNotifier {
           t.tags.any((tag) => tag.toLowerCase().contains(k));
     }).toList();
   }
+
+  /// 清理完成超过 [days] 天的任务, 返回清理条数(默认 180 天)
+  Future<int> pruneCompletedOlderThan({int days = 180}) async {
+    final cutoff = DateTime.now().subtract(Duration(days: days));
+    final before = _tasks.length;
+    _tasks.removeWhere(
+        (t) => t.isCompleted && t.completedAt != null && t.completedAt!.isBefore(cutoff));
+    final removed = before - _tasks.length;
+    if (removed > 0) {
+      _invalidateCaches();
+      await _persist();
+      notifyListeners();
+    }
+    return removed;
+  }
 }

@@ -301,6 +301,19 @@ class PomodoroProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 清理超过 [days] 天的番茄记录, 返回清理条数(默认 365 天)
+  Future<int> pruneRecordsOlderThan({int days = 365}) async {
+    final cutoff = DateTime.now().subtract(Duration(days: days));
+    final before = _records.length;
+    _records.removeWhere((r) => r.completedAt.isBefore(cutoff));
+    final removed = before - _records.length;
+    if (removed > 0) {
+      await _storage.saveRecords(_records);
+      notifyListeners();
+    }
+    return removed;
+  }
+
   @override
   void dispose() {
     remainingNotifier.dispose();

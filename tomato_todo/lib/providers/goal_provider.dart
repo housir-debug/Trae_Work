@@ -37,6 +37,8 @@ class GoalProvider extends ChangeNotifier {
 
   Future<void> _persist() => _storage.saveGoals(_goals);
 
+  Future<void> flush() async => _persist();
+
   Future<void> add(Goal goal) async {
     _goals.insert(0, goal);
     await _persist();

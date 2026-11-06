@@ -585,6 +585,21 @@ class SettingsScreen extends StatelessWidget {
                     subtitle: '粘贴之前导出的备份内容',
                     onTap: () => _import(context),
                   ),
+                  Divider(
+                      height: 1,
+                      color: theme.foreground.withOpacity(0.06)),
+                  _ActionRow(
+                    icon: Icons.cleaning_services_outlined,
+                    title: '清理旧完成任务(>180天)',
+                    subtitle: '自动释放空间, 不影响进行中的任务',
+                    onTap: () => _pruneTasks(context),
+                  ),
+                  _ActionRow(
+                    icon: Icons.history_edu_outlined,
+                    title: '清理旧番茄记录(>365天)',
+                    subtitle: '释放空间, 不影响统计最近 30/90 天',
+                    onTap: () => _prunePomo(context),
+                  ),
                   _ActionRow(
                     icon: Icons.delete_outline,
                     title: '清空全部数据',
@@ -823,6 +838,29 @@ class SettingsScreen extends StatelessWidget {
       if (context.mounted) showToast(context, '数据已恢复');
     } catch (e) {
       if (context.mounted) showToast(context, '恢复失败, 备份内容无效');
+    }
+  }
+
+  Future<void> _pruneTasks(BuildContext context) async {
+    final removed =
+        await context.read<TaskProvider>().pruneCompletedOlderThan(days: 180);
+    if (!context.mounted) return;
+    if (removed == 0) {
+      showToast(context, '没有超过 180 天的已完成任务');
+    } else {
+      showToast(context, '已清理 $removed 条旧任务');
+    }
+  }
+
+  Future<void> _prunePomo(BuildContext context) async {
+    final removed = await context
+        .read<PomodoroProvider>()
+        .pruneRecordsOlderThan(days: 365);
+    if (!context.mounted) return;
+    if (removed == 0) {
+      showToast(context, '没有超过 365 天的番茄记录');
+    } else {
+      showToast(context, '已清理 $removed 条旧番茄记录');
     }
   }
 

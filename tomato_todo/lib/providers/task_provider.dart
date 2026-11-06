@@ -111,6 +111,9 @@ class TaskProvider extends ChangeNotifier {
 
   Future<void> _persist() => _storage.saveTasks(_tasks);
 
+  /// 切后台时确保落盘(本 provider 没有 debounce, 立即持久化)
+  Future<void> flush() async => _persist();
+
   Future<void> addTask(Task task) async {
     _tasks.insert(0, task);
     _invalidateCaches();
@@ -278,5 +281,20 @@ class TaskProvider extends ChangeNotifier {
           t.notes.toLowerCase().contains(k) ||
           t.tags.any((tag) => tag.toLowerCase().contains(k));
     }).toList();
+  }
+
+  /// 清理完成超过 [days] 天的任务, 返回清理条数(默认 180 天)
+  Future<int> pruneCompletedOlderThan({int days = 180}) async {
+    final cutoff = DateTime.now().subtract(Duration(days: days));
+    final before = _tasks.length;
+    _tasks.removeWhere(
+        (t) => t.isCompleted && t.completedAt != null && t.completedAt!.isBefore(cutoff));
+    final removed = before - _tasks.length;
+    if (removed > 0) {
+      _invalidateCaches();
+      await _persist();
+      notifyListeners();
+    }
+    return removed;
   }
 }

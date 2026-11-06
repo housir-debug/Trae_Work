@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../core/utils.dart';
 import '../models/habit.dart';
+import '../models/pomodoro_record.dart';
 import '../models/schedule_event.dart';
 import '../models/task.dart';
 import '../providers/habit_provider.dart';
@@ -304,6 +305,14 @@ class TodayScreen extends StatelessWidget {
                 },
               ),
             ),
+          // 今日时间轴(已完成的事)
+          _TodayDoneTimeline(
+            theme: theme,
+            today: now,
+            tasks: tasks,
+            habits: habits,
+            pomo: pomo,
+          ),
           // 今日复盘
           SectionHeader(
             title: '今日复盘',
@@ -715,6 +724,183 @@ class _HabitChip extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ============== 今日时间轴(已完成的事) ==============
+
+class _TimelineEntry {
+  final DateTime time;
+  final String title;
+  final String? subtitle;
+  final IconData icon;
+  final Color color;
+
+  const _TimelineEntry({
+    required this.time,
+    required this.title,
+    this.subtitle,
+    required this.icon,
+    required this.color,
+  });
+
+  String get hhmm =>
+      '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+}
+
+class _TodayDoneTimeline extends StatelessWidget {
+  final ThemeDef theme;
+  final DateTime today;
+  final TaskProvider tasks;
+  final HabitProvider habits;
+  final PomodoroProvider pomo;
+
+  const _TodayDoneTimeline({
+    required this.theme,
+    required this.today,
+    required this.tasks,
+    required this.habits,
+    required this.pomo,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = <_TimelineEntry>[];
+
+    // 今天完成的任务(有精确时间)
+    for (final t in tasks.completedTasks) {
+      if (t.completedAt == null) continue;
+      if (!isSameDate(t.completedAt!, today)) continue;
+      entries.add(_TimelineEntry(
+        time: t.completedAt!,
+        title: t.title,
+        subtitle: t.priority.label.isNotEmpty ? '任务 · ${t.priority.label}' : '任务',
+        icon: Icons.task_alt,
+        color: theme.primary,
+      ));
+    }
+
+    // 今天打过卡的习惯(有精确时间, 新数据) / 老数据没时间时显示为 00:00
+    for (final h in habits.habits) {
+      if (!h.doneToday) continue;
+      final time = h.checkInTimeOn(today) ??
+          DateTime(today.year, today.month, today.day);
+      entries.add(_TimelineEntry(
+        time: time,
+        title: h.name,
+        subtitle: '习惯打卡',
+        icon: Icons.task_alt,
+        color: Color(h.colorValue),
+      ));
+    }
+
+    // 今天完成的专注阶段
+    for (final r in pomo.records) {
+      if (r.type != PomodoroType.work) continue;
+      if (!isSameDate(r.completedAt, today)) continue;
+      entries.add(_TimelineEntry(
+        time: r.completedAt,
+        title: r.taskTitle?.isNotEmpty == true
+            ? '${r.taskTitle} · 专注 ${r.durationMinutes}min'
+            : '专注 ${r.durationMinutes}min',
+        subtitle: '番茄钟',
+        icon: Icons.timer_outlined,
+        color: const Color(0xFFF06292),
+      ));
+    }
+
+    entries.sort((a, b) => a.time.compareTo(b.time));
+
+    if (entries.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SectionHeader(
+          title: '今日时间轴',
+          subtitle: '已完成 ${entries.length} 件事',
+          margin: const EdgeInsets.fromLTRB(20, 18, 20, 10),
+        ),
+        AppCard(
+          margin: const EdgeInsets.symmetric(horizontal: 20),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          child: Column(
+            children: [
+              for (int i = 0; i < entries.length; ++i) ...[
+                _timelineItem(entries[i], i == entries.length - 1),
+                if (i < entries.length - 1)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 15),
+                    child: Container(
+                      width: 1,
+                      height: 14,
+                      color: theme.foreground.withOpacity(0.07),
+                    ),
+                  ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _timelineItem(_TimelineEntry e, bool last) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 30,
+            height: 22,
+            alignment: Alignment.centerRight,
+            child: Text(
+              e.hhmm,
+              style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: theme.muted),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Container(
+            width: 16,
+            height: 16,
+            decoration: BoxDecoration(
+              color: e.color.withOpacity(0.18),
+              shape: BoxShape.circle,
+            ),
+            alignment: Alignment.center,
+            child: Icon(e.icon, size: 11, color: e.color),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  e.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: theme.foreground),
+                ),
+                if (e.subtitle != null)
+                  Text(
+                    e.subtitle!,
+                    style: TextStyle(fontSize: 10, color: theme.muted),
+                  ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

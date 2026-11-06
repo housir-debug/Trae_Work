@@ -52,6 +52,8 @@ class HabitProvider extends ChangeNotifier {
 
   Future<void> _persist() => _storage.saveHabits(_habits);
 
+  Future<void> flush() async => _persist();
+
   Future<void> add(Habit habit) async {
     _habits.add(habit);
     await _persist();
@@ -80,13 +82,19 @@ class HabitProvider extends ChangeNotifier {
     final now = DateTime.now();
     final key = dateKey(now);
     final checked = h.checkIns.contains(key);
-    final next = h.copyWith(checkIns: {...h.checkIns});
+    final nextCheckIns = {...h.checkIns};
+    final nextTimes = Map<String, DateTime>.from(h.checkInTimes);
     if (checked) {
-      next.checkIns.remove(key);
+      nextCheckIns.remove(key);
+      nextTimes.remove(key);
     } else {
-      next.checkIns.add(key);
+      nextCheckIns.add(key);
+      nextTimes[key] = now;
     }
-    _habits[idx] = next;
+    _habits[idx] = h.copyWith(
+      checkIns: nextCheckIns,
+      checkInTimes: nextTimes,
+    );
     await _persist();
     notifyListeners();
     return !checked;
