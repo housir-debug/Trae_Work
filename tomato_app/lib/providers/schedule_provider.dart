@@ -25,13 +25,20 @@ class ScheduleProvider extends ChangeNotifier {
     _saveTimer = Timer(const Duration(milliseconds: 200), _flush);
   }
 
+  /// 公开 flush: 切后台 / 退出时调用, 强制落盘
+  Future<void> flush() async {
+    if (_dirtyCache != null) {
+      _flush();
+    }
+  }
+
   void _flush() {
     _saveTimer?.cancel();
     _saveTimer = null;
     final pending = _dirtyCache;
     _dirtyCache = null;
     if (pending != null) {
-      _storage.saveEvents(pending); // 不是 async, 内存写 SharedPreferences
+      _storage.saveEvents(pending);
     }
   }
 

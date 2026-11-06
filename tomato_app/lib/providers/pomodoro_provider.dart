@@ -207,6 +207,13 @@ class PomodoroProvider extends ChangeNotifier {
     _storage.saveTimerSnapshot(jsonEncode(t.snapshot().toJson()));
   }
 
+  /// 切后台时确保 timer 快照、records 都落盘
+  Future<void> flush() async {
+    _persistTimer();
+    _storage.saveRecords(_records);
+    _storage.saveCompletedWorkCount(_completedWorkCount);
+  }
+
   void _syncTimerNotification() {
     final t = _timer;
     if (t == null || notifications == null) return;

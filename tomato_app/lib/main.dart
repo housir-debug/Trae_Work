@@ -215,9 +215,14 @@ class _RootGateState extends State<RootGate> with WidgetsBindingObserver {
       _wasBackground = true;
       _relockTimer?.cancel();
       _relockTimer = null;
-      try {
-        context.read<SettingsProvider>().flush();
-      } catch (_) {}
+      // 统一落盘: 确保所有 Provider 的最后一次写入不会丢
+      try { context.read<SettingsProvider>().flush(); } catch (_) {}
+      try { context.read<TaskProvider>().flush(); } catch (_) {}
+      try { context.read<ScheduleProvider>().flush(); } catch (_) {}
+      try { context.read<HabitProvider>().flush(); } catch (_) {}
+      try { context.read<GoalProvider>().flush(); } catch (_) {}
+      try { context.read<JournalProvider>().flush(); } catch (_) {}
+      try { context.read<PomodoroProvider>().flush(); } catch (_) {}
     } else if (state == AppLifecycleState.resumed) {
       // 回到前台先按真实时间校准番茄钟
       try {

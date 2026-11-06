@@ -111,6 +111,9 @@ class TaskProvider extends ChangeNotifier {
 
   Future<void> _persist() => _storage.saveTasks(_tasks);
 
+  /// 切后台时确保落盘(本 provider 没有 debounce, 立即持久化)
+  Future<void> flush() async => _persist();
+
   Future<void> addTask(Task task) async {
     _tasks.insert(0, task);
     _invalidateCaches();

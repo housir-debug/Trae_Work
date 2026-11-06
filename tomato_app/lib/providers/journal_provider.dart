@@ -73,4 +73,8 @@ class JournalProvider extends ChangeNotifier {
     await _storage.saveJournals(_entries);
     notifyListeners();
   }
+
+  Future<void> flush() async {
+    await _storage.saveJournals(_entries);
+  }
 }
