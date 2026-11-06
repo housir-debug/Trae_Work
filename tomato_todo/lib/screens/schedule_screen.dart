@@ -50,12 +50,25 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       _selected = startOfDay(d);
       _weekStart = startOfWeek(d);
     });
+    _jumpToMorning();
   }
 
   void _shiftWeek(int deltaWeeks) {
     setState(() {
       _weekStart = _weekStart.add(Duration(days: 7 * deltaWeeks));
       _selected = _weekStart;
+    });
+    _jumpToMorning();
+  }
+
+  void _jumpToMorning() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scroll.hasClients) return;
+      _scroll.animateTo(
+        7 * _hourHeight,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      );
     });
   }
 

@@ -13,7 +13,15 @@ class TaskProvider extends ChangeNotifier {
 
   List<Task> get tasks => _tasks;
 
+  // --------- 派生字段缓存 ---------
+  int _activeRevision = 0;
+  int _activeLastRevision = -1;
+  List<Task>? _activeCache;
+
   List<Task> get activeTasks {
+    if (_activeLastRevision == _activeRevision && _activeCache != null) {
+      return _activeCache!;
+    }
     final active = _tasks.where((t) => !t.isCompleted).toList();
     active.sort((a, b) {
       if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
@@ -25,13 +33,24 @@ class TaskProvider extends ChangeNotifier {
       if (bd != null) return 1;
       return a.createdAt.compareTo(b.createdAt);
     });
+    _activeCache = active;
+    _activeLastRevision = _activeRevision;
     return active;
   }
 
+  int _completedRevision = 0;
+  int _completedLastRevision = -1;
+  List<Task>? _completedCache;
+
   List<Task> get completedTasks {
+    if (_completedLastRevision == _completedRevision && _completedCache != null) {
+      return _completedCache!;
+    }
     final done = _tasks.where((t) => t.isCompleted).toList();
     done.sort((a, b) => (b.completedAt ?? DateTime.now())
         .compareTo(a.completedAt ?? DateTime.now()));
+    _completedCache = done;
+    _completedLastRevision = _completedRevision;
     return done;
   }
 
@@ -79,13 +98,22 @@ class TaskProvider extends ChangeNotifier {
 
   void load() {
     _tasks = _storage.loadTasks();
+    _invalidateCaches();
     notifyListeners();
+  }
+
+  void _invalidateCaches() {
+    _activeRevision++;
+    _completedRevision++;
+    _activeCache = null;
+    _completedCache = null;
   }
 
   Future<void> _persist() => _storage.saveTasks(_tasks);
 
   Future<void> addTask(Task task) async {
     _tasks.insert(0, task);
+    _invalidateCaches();
     await _persist();
     notifyListeners();
   }
@@ -94,6 +122,7 @@ class TaskProvider extends ChangeNotifier {
     final idx = _tasks.indexWhere((t) => t.id == task.id);
     if (idx < 0) return;
     _tasks[idx] = task;
+    _invalidateCaches();
     await _persist();
     notifyListeners();
   }
@@ -123,10 +152,12 @@ class TaskProvider extends ChangeNotifier {
               .map((s) => s.copyWith(isDone: false))
               .toList(growable: false),
           repeat: t.repeat,
+          isPinned: t.isPinned,
         ),
       );
     }
 
+    _invalidateCaches();
     await _persist();
     notifyListeners();
   }
@@ -137,6 +168,7 @@ class TaskProvider extends ChangeNotifier {
     _tasks[idx] = _tasks[idx].copyWith(
       completedPomodoros: _tasks[idx].completedPomodoros + 1,
     );
+    // 只影响任务详情显示, active 排序里用不到, 但 completedTasks 排序用 createdAt 不影响
     await _persist();
     notifyListeners();
   }
@@ -146,6 +178,7 @@ class TaskProvider extends ChangeNotifier {
     final idx = _tasks.indexWhere((t) => t.id == id);
     if (idx < 0) return null;
     final removed = _tasks.removeAt(idx);
+    _invalidateCaches();
     await _persist();
     notifyListeners();
     return removed;
@@ -155,6 +188,7 @@ class TaskProvider extends ChangeNotifier {
   Future<void> restoreTask(Task task) async {
     if (_tasks.any((t) => t.id == task.id)) return;
     _tasks.insert(0, task);
+    _invalidateCaches();
     await _persist();
     notifyListeners();
   }
@@ -164,6 +198,7 @@ class TaskProvider extends ChangeNotifier {
     final idx = _tasks.indexWhere((t) => t.id == id);
     if (idx < 0) return;
     _tasks[idx] = _tasks[idx].copyWith(isPinned: !_tasks[idx].isPinned);
+    _invalidateCaches();
     await _persist();
     notifyListeners();
   }
@@ -173,6 +208,7 @@ class TaskProvider extends ChangeNotifier {
     final idx = _tasks.indexWhere((t) => t.id == id);
     if (idx < 0) return;
     _tasks[idx] = _tasks[idx].copyWith(dueDate: startOfDay(date));
+    _invalidateCaches();
     await _persist();
     notifyListeners();
   }
@@ -189,6 +225,7 @@ class TaskProvider extends ChangeNotifier {
       }
     }
     if (count > 0) {
+      _invalidateCaches();
       await _persist();
       notifyListeners();
     }
@@ -213,6 +250,7 @@ class TaskProvider extends ChangeNotifier {
       repeat: t.repeat,
     );
     _tasks.insert(0, copy);
+    _invalidateCaches();
     await _persist();
     notifyListeners();
     return copy;

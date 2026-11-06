@@ -193,11 +193,12 @@ class _RootGateState extends State<RootGate> with WidgetsBindingObserver {
 
   void _openPendingEvent() {
     if (_locked) return;
-    final key = NotificationService.instance.consumePendingEventDate();
+    final key = NotificationService.instance.peekPendingEventDate();
     if (key == null) return;
     appNavigatorKey.currentState?.push(MaterialPageRoute(
       builder: (_) => ScheduleScreen(initialDate: DateTime.tryParse(key)),
     ));
+    NotificationService.instance.clearPendingEventDate();
   }
 
   @override

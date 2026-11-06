@@ -1,4 +1,6 @@
 // providers/schedule_provider.dart - 日程 / 时间块状态
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../core/utils.dart';
@@ -11,7 +13,33 @@ class ScheduleProvider extends ChangeNotifier {
 
   ScheduleProvider(this._storage);
 
+  // 写入防抖: 拖拽/批量操作时合并多次 _persist
+  Timer? _saveTimer;
+  List<ScheduleEvent>? _dirtyCache;
+
   List<ScheduleEvent> get events => _events;
+
+  Future<void> _persist() async {
+    _dirtyCache = List.of(_events);
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 200), _flush);
+  }
+
+  void _flush() {
+    _saveTimer?.cancel();
+    _saveTimer = null;
+    final pending = _dirtyCache;
+    _dirtyCache = null;
+    if (pending != null) {
+      _storage.saveEvents(pending); // 不是 async, 内存写 SharedPreferences
+    }
+  }
+
+  @override
+  void dispose() {
+    _flush();
+    super.dispose();
+  }
 
   List<ScheduleEvent> eventsFor(DateTime day) {
     final key = dateKey(day);
@@ -78,8 +106,6 @@ class ScheduleProvider extends ChangeNotifier {
     _events = _storage.loadEvents();
     notifyListeners();
   }
-
-  Future<void> _persist() => _storage.saveEvents(_events);
 
   Future<void> add(ScheduleEvent event) async {
     _events.add(event);

@@ -30,16 +30,22 @@ class NotificationService {
 
   bool _ready = false;
 
-  /// 点击日程通知后待打开的日期(由 RootGate 在解锁/首帧后消费)
   String? _pendingEventDateKey;
 
   /// 通知被点击时回调(由 RootGate 注册, 负责上锁状态下的安全判断)
   void Function()? onEventTap;
 
-  String? consumePendingEventDate() {
-    final key = _pendingEventDateKey;
+  /// 取出并**保留**待打开的日期 —— RootGate 自己决定何时消费, 避免在锁屏状态下被丢掉
+  String? peekPendingEventDate() => _pendingEventDateKey;
+
+  /// 成功导航后再清除
+  void clearPendingEventDate() {
     _pendingEventDateKey = null;
-    return key;
+  }
+
+  /// 直接设置待打开的日期(不经过 onEventTap, 用于冷启动首帧场景)
+  void setPendingEventDateByLaunch(String key) {
+    _pendingEventDateKey = key;
   }
 
   void _handleResponse(NotificationResponse response) {
@@ -72,8 +78,8 @@ class NotificationService {
         final payload = launch?.notificationResponse?.payload;
         if (payload != null && payload.startsWith('event:')) {
           final parts = payload.split(':');
-          _pendingEventDateKey =
-              parts.length >= 3 ? parts[2] : dateKey(DateTime.now());
+          setPendingEventDateByLaunch(
+              parts.length >= 3 ? parts[2] : dateKey(DateTime.now()));
         }
       }
       final androidImpl = _plugin.resolvePlatformSpecificImplementation<
@@ -207,7 +213,9 @@ class NotificationService {
       final notifyAt = start.subtract(Duration(minutes: reminder));
       if (notifyAt.isBefore(now)) continue;
 
-      final id = _eventIdBase + fnvHash(e.id) % 90000;
+      // 用复合 key 降低不同日程碰撞到同一通知 id 的概率
+      final id =
+          _eventIdBase + fnvHash('${e.id}:${e.dateKey}:${e.startMinute}') % 90000;
       await _schedule(
         id: id,
         title: '${e.title} · ${timeText(e.startMinute)}',

@@ -41,13 +41,14 @@ String timeText(int minutes) {
   return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
 }
 
-/// HH:mm -> 分钟数, 解析失败返回 null
+/// HH:mm -> 分钟数, 解析失败返回 null; 24:00 视为 1440
 int? parseTimeText(String text) {
   final parts = text.split(':');
   if (parts.length != 2) return null;
   final h = int.tryParse(parts[0]);
   final m = int.tryParse(parts[1]);
-  if (h == null || m == null || h < 0 || h > 23 || m < 0 || m > 59) return null;
+  if (h == null || m == null || h < 0 || h > 24 || m < 0 || m > 59) return null;
+  if (h == 24 && m != 0) return null;
   return h * 60 + m;
 }
 
