@@ -10,6 +10,7 @@ class AppSettings {
   bool autoStartNext; // 完成后自动开始下一个
   bool showNotification;
   bool enableVibrate;
+  bool keepScreenOn; // 专注运行中屏幕常亮
 
   // 声音
   String tickSound;
@@ -51,6 +52,7 @@ class AppSettings {
     this.autoStartNext = false,
     this.showNotification = true,
     this.enableVibrate = true,
+    this.keepScreenOn = true,
     this.tickSound = 'tick',
     this.completeSound = 'bell',
     this.themeIndex = 0,
@@ -79,6 +81,7 @@ class AppSettings {
     bool? autoStartNext,
     bool? showNotification,
     bool? enableVibrate,
+    bool? keepScreenOn,
     String? tickSound,
     String? completeSound,
     int? themeIndex,
@@ -108,6 +111,7 @@ class AppSettings {
       autoStartNext: autoStartNext ?? this.autoStartNext,
       showNotification: showNotification ?? this.showNotification,
       enableVibrate: enableVibrate ?? this.enableVibrate,
+      keepScreenOn: keepScreenOn ?? this.keepScreenOn,
       tickSound: tickSound ?? this.tickSound,
       completeSound: completeSound ?? this.completeSound,
       themeIndex: themeIndex ?? this.themeIndex,
@@ -144,6 +148,7 @@ class AppSettings {
         'autoStartNext': autoStartNext,
         'showNotification': showNotification,
         'enableVibrate': enableVibrate,
+        'keepScreenOn': keepScreenOn,
         'tickSound': tickSound,
         'completeSound': completeSound,
         'themeIndex': themeIndex,
@@ -172,6 +177,7 @@ class AppSettings {
         autoStartNext: json['autoStartNext'] as bool? ?? false,
         showNotification: json['showNotification'] as bool? ?? true,
         enableVibrate: json['enableVibrate'] as bool? ?? true,
+        keepScreenOn: json['keepScreenOn'] as bool? ?? true,
         tickSound: json['tickSound'] as String? ?? 'tick',
         completeSound: json['completeSound'] as String? ?? 'bell',
         themeIndex: json['themeIndex'] as int? ?? 0,

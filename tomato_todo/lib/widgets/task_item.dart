@@ -16,8 +16,6 @@ class TaskItemWidget extends StatelessWidget {
   final VoidCallback? onFocus;
   final VoidCallback? onSchedule;
   final VoidCallback? onPin;
-  final VoidCallback? onTomorrow;
-  final VoidCallback? onNextWeek;
   final VoidCallback? onDuplicate;
   final bool showDate;
 
@@ -30,8 +28,6 @@ class TaskItemWidget extends StatelessWidget {
     this.onFocus,
     this.onSchedule,
     this.onPin,
-    this.onTomorrow,
-    this.onNextWeek,
     this.onDuplicate,
     this.showDate = true,
   });
@@ -39,7 +35,8 @@ class TaskItemWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.watch<SettingsProvider>().currentTheme;
-    final priorityColor = _priorityColor(task.priority);
+    final effectivePriority = task.effectivePriority;
+    final priorityColor = _priorityColor(effectivePriority);
 
     return AppCard(
       margin: const EdgeInsets.fromLTRB(20, 5, 20, 5),
@@ -104,17 +101,22 @@ class TaskItemWidget extends StatelessWidget {
                         icon: Icons.push_pin_outlined,
                       ),
                     TinyBadge(
-                      text: task.priority.label,
+                      text: task.isRecurring &&
+                              effectivePriority != task.priority
+                          ? '${effectivePriority.label}(自动)'
+                          : effectivePriority.label,
                       color: priorityColor,
                     ),
+                    if (task.isOverdue)
+                      const TinyBadge(
+                        text: '已逾期',
+                        color: Color(0xFFFF5252),
+                        icon: Icons.warning_amber_rounded,
+                      ),
                     if (showDate && task.dueDate != null)
                       TinyBadge(
-                        text: task.isOverdue
-                            ? '已逾期·${friendlyDate(task.dueDate!)}'
-                            : friendlyDate(task.dueDate!),
-                        color: task.isOverdue
-                            ? const Color(0xFFFF5252)
-                            : theme.primary,
+                        text: '日程 ${friendlyDate(task.dueDate!)}',
+                        color: theme.primary,
                         icon: Icons.event_outlined,
                       ),
                     if (task.tags.isNotEmpty)
@@ -126,9 +128,11 @@ class TaskItemWidget extends StatelessWidget {
                         color: const Color(0xFF7E57C2),
                         icon: Icons.checklist_rtl,
                       ),
-                    if (task.repeat.repeats)
+                    if (task.isRecurring)
                       TinyBadge(
-                        text: task.repeat.label,
+                        text: task.isDormant
+                            ? '${task.repeatLabel} · 休眠中'
+                            : task.repeatLabel,
                         color: theme.primary,
                         icon: Icons.repeat,
                       ),
@@ -218,8 +222,6 @@ class TaskItemWidget extends StatelessWidget {
                 if (v == 'edit') onEdit?.call();
                 if (v == 'schedule') onSchedule?.call();
                 if (v == 'pin') onPin?.call();
-                if (v == 'tomorrow') onTomorrow?.call();
-                if (v == 'nextWeek') onNextWeek?.call();
                 if (v == 'duplicate') onDuplicate?.call();
                 if (v == 'delete') onDelete?.call();
               },
@@ -234,18 +236,6 @@ class TaskItemWidget extends StatelessWidget {
                   PopupMenuItem(
                     value: 'pin',
                     child: Text(task.isPinned ? '取消置顶' : '置顶',
-                        style: TextStyle(fontSize: 13, color: theme.foreground)),
-                  ),
-                if (onTomorrow != null && !task.isCompleted)
-                  PopupMenuItem(
-                    value: 'tomorrow',
-                    child: Text('改到明天',
-                        style: TextStyle(fontSize: 13, color: theme.foreground)),
-                  ),
-                if (onNextWeek != null && !task.isCompleted)
-                  PopupMenuItem(
-                    value: 'nextWeek',
-                    child: Text('改到下周',
                         style: TextStyle(fontSize: 13, color: theme.foreground)),
                   ),
                 if (onDuplicate != null)

@@ -4,14 +4,25 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../core/utils.dart';
+import '../models/completion_record.dart';
 import '../models/schedule_event.dart';
 import '../services/storage_service.dart';
+import 'completion_provider.dart';
 
 class ScheduleProvider extends ChangeNotifier {
   final StorageService _storage;
   List<ScheduleEvent> _events = [];
 
   ScheduleProvider(this._storage);
+
+  /// 完成记录(时间轴), 由 main 注入
+  CompletionProvider? completions;
+
+  /// 创建日程时自动建立联动待办, 返回待办 id(由 main 注入)
+  Future<String?> Function(ScheduleEvent event)? createLinkedTask;
+
+  /// 勾选日程完成时同步联动待办(由 main 注入)
+  void Function(String taskId, bool done)? toggleLinkedTask;
 
   // 写入防抖: 拖拽/批量操作时合并多次 _persist
   Timer? _saveTimer;
@@ -111,10 +122,22 @@ class ScheduleProvider extends ChangeNotifier {
 
   void load() {
     _events = _storage.loadEvents();
+    // 自动裁剪 366 天前的历史日程, 避免无限增长
+    final cutoff = dateKey(DateTime.now().subtract(const Duration(days: 366)));
+    final before = _events.length;
+    _events.removeWhere((e) => e.dateKey.compareTo(cutoff) < 0);
+    if (_events.length != before) {
+      _storage.saveEvents(_events);
+    }
     notifyListeners();
   }
 
   Future<void> add(ScheduleEvent event) async {
+    // 需求: 在日程中创建的日程等同于待办, 自动同步到待办列表
+    if (event.taskId == null && createLinkedTask != null) {
+      final taskId = await createLinkedTask!(event);
+      if (taskId != null) event.taskId = taskId;
+    }
     _events.add(event);
     await _persist();
     notifyListeners();
@@ -181,8 +204,40 @@ class ScheduleProvider extends ChangeNotifier {
   Future<void> toggleDone(String id) async {
     final idx = _events.indexWhere((e) => e.id == id);
     if (idx < 0) return;
-    _events[idx] = _events[idx].copyWith(isDone: !_events[idx].isDone);
+    final e = _events[idx];
+    final done = !e.isDone;
+    _events[idx] = e.copyWith(isDone: done);
     await _persist();
     notifyListeners();
+
+    // 完成日程 = 写入时间轴; 有联动待办时由待办侧统一写, 避免重复记录
+    if (done && e.taskId == null) {
+      completions?.add(CompletionRecord(
+        title: e.title,
+        kind: CompletionKind.schedule,
+        timestamp: DateTime.now(),
+        note: '${e.dateKey} ${timeText(e.startMinute)}-${timeText(e.endMinute)}',
+      ));
+    }
+    // 同步联动待办
+    if (e.taskId != null) {
+      toggleLinkedTask?.call(e.taskId!, done);
+    }
+  }
+
+  /// 由待办侧触发: 把关联日程标记完成/取消(待办完成 -> 日程完成)
+  void markDoneByTaskId(String taskId, bool done) {
+    bool changed = false;
+    for (var i = 0; i < _events.length; ++i) {
+      final e = _events[i];
+      if (e.taskId == taskId && e.isDone != done) {
+        _events[i] = e.copyWith(isDone: done);
+        changed = true;
+      }
+    }
+    if (changed) {
+      _persist();
+      notifyListeners();
+    }
   }
 }

@@ -5,7 +5,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../core/utils.dart';
 import '../models/pomodoro_record.dart';
-import '../providers/habit_provider.dart';
+import '../providers/completion_provider.dart';
 import '../providers/journal_provider.dart';
 import '../providers/pomodoro_provider.dart';
 import '../providers/schedule_provider.dart';
@@ -25,9 +25,9 @@ class WeeklyReportScreen extends StatelessWidget {
     final theme = context.watch<SettingsProvider>().currentTheme;
     final pomo = context.watch<PomodoroProvider>();
     final tasks = context.watch<TaskProvider>();
-    final habits = context.watch<HabitProvider>();
     final journal = context.watch<JournalProvider>();
     final schedule = context.watch<ScheduleProvider>();
+    final completions = context.watch<CompletionProvider>();
 
     final now = DateTime.now();
     final start = _start;
@@ -36,8 +36,7 @@ class WeeklyReportScreen extends StatelessWidget {
     final focusMinutes = pomo.workMinutesLastDays(7).fold<int>(0, (a, b) => a + b);
     final focusCount = pomo.workCountLastDays(7).fold<int>(0, (a, b) => a + b);
     final taskDone = tasks.completedBetween(start, end);
-    final habitChecks =
-        habits.totalChecksBetween(start, end);
+    final doneCount = completions.countBetween(start, end);
     final planned = schedule.events
         .where((e) {
           final d = DateTime.tryParse(e.dateKey);
@@ -70,7 +69,7 @@ class WeeklyReportScreen extends StatelessWidget {
       focusMinutes: focusMinutes,
       focusCount: focusCount,
       taskDone: taskDone,
-      habitChecks: habitChecks,
+      doneCount: doneCount,
       planned: planned,
       activeDays: activeDays,
       bestHour: bestHour,
@@ -137,9 +136,9 @@ class WeeklyReportScreen extends StatelessWidget {
                       ),
                       Expanded(
                         child: _Metric(
-                          label: '习惯打卡',
-                          value: '$habitChecks',
-                          sub: '次',
+                          label: '完成事项',
+                          value: '$doneCount',
+                          sub: '件',
                           color: const Color(0xFF6BCB9D),
                         ),
                       ),
@@ -294,7 +293,7 @@ class WeeklyReportScreen extends StatelessWidget {
     required int focusMinutes,
     required int focusCount,
     required int taskDone,
-    required int habitChecks,
+    required int doneCount,
     required int planned,
     required int activeDays,
     required int? bestHour,
@@ -311,7 +310,7 @@ class WeeklyReportScreen extends StatelessWidget {
     }
     b
       ..writeln('✅ 完成待办 $taskDone 项')
-      ..writeln('🔁 习惯打卡 $habitChecks 次')
+      ..writeln('🗓 完成事项 $doneCount 件(待办/日程/打卡/专注)')
       ..writeln('🗓 规划时长 ${durationText(planned)}');
     if (journalDays > 0) {
       b.writeln('📝 复盘 $journalDays 天 · 平均心情 ${avgMood.toStringAsFixed(1)}/5');

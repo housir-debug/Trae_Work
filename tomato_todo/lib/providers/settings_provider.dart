@@ -107,6 +107,10 @@ class SettingsProvider extends ChangeNotifier {
     await update(_settings.copyWith(enableVibrate: !_settings.enableVibrate));
   }
 
+  Future<void> setKeepScreenOn(bool v) async {
+    await update(_settings.copyWith(keepScreenOn: v));
+  }
+
   // ---------- 提醒 ----------
   Future<void> setRemindersEnabled(bool v) async {
     await update(_settings.copyWith(remindersEnabled: v));

@@ -8,20 +8,23 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import 'core/app_navigator.dart';
+import 'core/utils.dart';
 import 'models/app_settings.dart';
+import 'models/completion_record.dart';
+import 'models/task.dart';
+import 'providers/completion_provider.dart';
 import 'providers/goal_provider.dart';
-import 'providers/habit_provider.dart';
 import 'providers/journal_provider.dart';
 import 'providers/pomodoro_provider.dart';
 import 'providers/schedule_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/task_provider.dart';
 import 'screens/goals_screen.dart';
-import 'screens/habits_screen.dart';
 import 'screens/lock_screen.dart';
 import 'screens/schedule_screen.dart';
 import 'screens/stats_screen.dart';
 import 'screens/tasks_screen.dart';
+import 'screens/timeline_screen.dart';
 import 'screens/today_screen.dart';
 import 'services/backup_service.dart';
 import 'services/notification_service.dart';
@@ -49,7 +52,7 @@ class ShiguangApp extends StatefulWidget {
 class _ShiguangAppState extends State<ShiguangApp> {
   late final SettingsProvider _settingsProv;
   late final TaskProvider _taskProv;
-  late final HabitProvider _habitProv;
+  late final CompletionProvider _completionProv;
   late final GoalProvider _goalProv;
   late final ScheduleProvider _scheduleProv;
   late final JournalProvider _journalProv;
@@ -60,12 +63,17 @@ class _ShiguangAppState extends State<ShiguangApp> {
   void initState() {
     super.initState();
     _settingsProv = SettingsProvider(StorageService.instance)..load();
-    _taskProv = TaskProvider(StorageService.instance)..load();
-    _habitProv = HabitProvider(StorageService.instance)..load();
+    _completionProv = CompletionProvider(StorageService.instance)..load();
+    _taskProv = TaskProvider(StorageService.instance)
+      ..completions = _completionProv
+      ..load();
     _goalProv = GoalProvider(StorageService.instance)..load();
-    _scheduleProv = ScheduleProvider(StorageService.instance)..load();
+    _scheduleProv = ScheduleProvider(StorageService.instance)
+      ..completions = _completionProv
+      ..load();
     _journalProv = JournalProvider(StorageService.instance)..load();
     _pomoProv = PomodoroProvider(StorageService.instance)
+      ..completions = _completionProv
       ..notifications = NotificationService.instance
       ..init(_settingsProv.settings);
 
@@ -76,6 +84,23 @@ class _ShiguangAppState extends State<ShiguangApp> {
       }
     };
 
+    // ---- 日程 <-> 待办 双向联动 ----
+    // 待办勾选完成 -> 同步日程勾选状态
+    _taskProv.onTaskLinkedEvent = _scheduleProv.markDoneByTaskId;
+    // 新建日程 -> 自动生成一条联动待办(优先级由 dueDate 自动递进)
+    _scheduleProv.createLinkedTask = (event) async {
+      final day = DateTime.tryParse(event.dateKey) ?? DateTime.now();
+      final task = Task(title: event.title, dueDate: startOfDay(day));
+      await _taskProv.addTask(task);
+      return task.id;
+    };
+    // 日程勾选完成 -> 同步待办完成状态
+    _scheduleProv.toggleLinkedTask = (taskId, done) {
+      final task = _taskProv.taskById(taskId);
+      if (task == null || task.isCompleted == done) return;
+      _taskProv.toggleComplete(taskId, fromSchedule: true);
+    };
+
     // 设置变化时同步计时器参数与提醒
     _settingsProv.addListener(() {
       _pomoProv.updateSettings(_settingsProv.settings);
@@ -84,8 +109,36 @@ class _ShiguangAppState extends State<ShiguangApp> {
     // 日程变化时重新安排提醒
     _scheduleProv.addListener(_scheduleNotificationSync);
 
+    _migrateHabits();
     _syncNotifications();
     _bootstrapBackup();
+  }
+
+  /// v3.0 迁移: 习惯打卡合并为「周期重复待办」, 打卡历史进入时间轴
+  Future<void> _migrateHabits() async {
+    final storage = StorageService.instance;
+    if (storage.habitsMigrated) return;
+    final habits = storage.loadHabits();
+    for (final h in habits) {
+      final interval = (7 / h.targetPerWeek).round().clamp(1, 30);
+      await _taskProv.addTask(Task(
+        title: h.name,
+        repeatIntervalDays: interval,
+        cycleStartAt: DateTime.now(),
+      ));
+      for (final key in h.checkIns) {
+        final day = DateTime.tryParse(key);
+        if (day == null) continue;
+        await _completionProv.add(CompletionRecord(
+          title: h.name,
+          kind: CompletionKind.habit,
+          timestamp: h.checkInTimes[key] ?? day,
+          note: '习惯打卡',
+        ));
+      }
+    }
+    await storage.saveHabits([]);
+    await storage.markHabitsMigrated();
   }
 
   Future<void> _bootstrapBackup() async {
@@ -113,7 +166,7 @@ class _ShiguangAppState extends State<ShiguangApp> {
     _syncDebounce?.cancel();
     _settingsProv.dispose();
     _taskProv.dispose();
-    _habitProv.dispose();
+    _completionProv.dispose();
     _goalProv.dispose();
     _scheduleProv.dispose();
     _journalProv.dispose();
@@ -127,7 +180,7 @@ class _ShiguangAppState extends State<ShiguangApp> {
       providers: [
         ChangeNotifierProvider.value(value: _settingsProv),
         ChangeNotifierProvider.value(value: _taskProv),
-        ChangeNotifierProvider.value(value: _habitProv),
+        ChangeNotifierProvider.value(value: _completionProv),
         ChangeNotifierProvider.value(value: _goalProv),
         ChangeNotifierProvider.value(value: _scheduleProv),
         ChangeNotifierProvider.value(value: _journalProv),
@@ -219,7 +272,7 @@ class _RootGateState extends State<RootGate> with WidgetsBindingObserver {
       try { context.read<SettingsProvider>().flush(); } catch (_) {}
       try { context.read<TaskProvider>().flush(); } catch (_) {}
       try { context.read<ScheduleProvider>().flush(); } catch (_) {}
-      try { context.read<HabitProvider>().flush(); } catch (_) {}
+      try { context.read<CompletionProvider>().flush(); } catch (_) {}
       try { context.read<GoalProvider>().flush(); } catch (_) {}
       try { context.read<JournalProvider>().flush(); } catch (_) {}
       try { context.read<PomodoroProvider>().flush(); } catch (_) {}
@@ -279,7 +332,7 @@ class _RootPageState extends State<RootPage> {
   List<Widget> get _screens => [
         TodayScreen(onOpenTasks: () => setState(() => _idx = 1)),
         const TasksScreen(),
-        const HabitsScreen(),
+        const TimelineScreen(),
         const GoalsScreen(),
         const StatsScreen(),
       ];
@@ -390,7 +443,7 @@ class _BottomBar extends StatelessWidget {
   static const _items = [
     (Icons.wb_sunny_outlined, '今日'),
     (Icons.checklist_rtl, '待办'),
-    (Icons.repeat, '习惯'),
+    (Icons.timeline, '时间轴'),
     (Icons.flag_outlined, '目标'),
     (Icons.insights, '统计'),
   ];

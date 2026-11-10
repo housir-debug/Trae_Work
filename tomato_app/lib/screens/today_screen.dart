@@ -1,13 +1,12 @@
 // screens/today_screen.dart - 今日秘书首页
+// v3.0: 只保留 概览/番茄钟/今日行程/今日复盘;
+//       待办与周期习惯在「待办」页管理, 完成记录看「时间轴」页;
+//       番茄钟工作阶段完成后弹出选择: 继续工作(下一轮后强制休息) / 去休息
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/utils.dart';
-import '../models/habit.dart';
-import '../models/pomodoro_record.dart';
 import '../models/schedule_event.dart';
-import '../models/task.dart';
-import '../providers/habit_provider.dart';
 import '../providers/journal_provider.dart';
 import '../providers/pomodoro_provider.dart';
 import '../providers/schedule_provider.dart';
@@ -17,17 +16,123 @@ import '../theme/backgrounds.dart';
 import '../widgets/journal_sheet.dart';
 import '../widgets/pomodoro_timer.dart';
 import '../widgets/schedule_editor.dart';
-import '../widgets/task_input.dart';
-import '../widgets/task_item.dart';
 import '../widgets/ui.dart';
 import 'journal_history_screen.dart';
 import 'schedule_screen.dart';
 import 'settings_screen.dart';
 
-class TodayScreen extends StatelessWidget {
+class TodayScreen extends StatefulWidget {
   final VoidCallback? onOpenTasks;
 
   const TodayScreen({super.key, this.onOpenTasks});
+
+  @override
+  State<TodayScreen> createState() => _TodayScreenState();
+}
+
+class _TodayScreenState extends State<TodayScreen> {
+  bool _completionDialogShowing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // 监听番茄钟阶段完成信号, 弹出「继续工作 / 去休息」选择
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<PomodoroProvider>().completionSignal.addListener(_onPomodoroPhaseDone);
+    });
+  }
+
+  @override
+  void dispose() {
+    // provider 可能先 dispose, 用 try 容错
+    super.dispose();
+  }
+
+  void _onPomodoroPhaseDone() {
+    if (!mounted || _completionDialogShowing) return;
+    final pomo = context.read<PomodoroProvider>();
+    if (pomo.lastCompletedKind == 'work') {
+      _showWorkDoneChoice(pomo);
+    } else if (pomo.lastCompletedKind == 'break') {
+      pomo.lastCompletedKind = null;
+      showToast(context, '休息结束，本轮周期完成 ✓');
+    }
+  }
+
+  Future<void> _showWorkDoneChoice(PomodoroProvider pomo) async {
+    _completionDialogShowing = true;
+    final theme = context.read<SettingsProvider>().currentTheme;
+    final choice = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: theme.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Icon(Icons.celebration_outlined, color: theme.primary, size: 22),
+            const SizedBox(width: 8),
+            Text('专注完成！',
+                style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: theme.foreground)),
+          ],
+        ),
+        content: Text(
+          '工作完成了吗？\n选择「继续工作」将再专注一轮，之后强制休息。',
+          style: TextStyle(fontSize: 13, color: theme.muted, height: 1.5),
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+        actions: [
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: theme.primary,
+                    side: BorderSide(color: theme.primary.withOpacity(0.5)),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
+                  ),
+                  onPressed: () => Navigator.of(ctx).pop('continue'),
+                  icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                  label: const Text('继续工作',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: theme.primary,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
+                  ),
+                  onPressed: () => Navigator.of(ctx).pop('break'),
+                  icon: const Icon(Icons.coffee_outlined, size: 18),
+                  label: const Text('去休息',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+    _completionDialogShowing = false;
+    if (!mounted) return;
+    pomo.lastCompletedKind = null;
+    if (choice == 'continue') {
+      pomo.continueWorking();
+      showToast(context, '继续专注，本轮结束后将强制休息');
+    } else if (choice == 'break') {
+      pomo.takeBreak();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -35,7 +140,6 @@ class TodayScreen extends StatelessWidget {
     final theme = settings.currentTheme;
     final pomo = context.watch<PomodoroProvider>();
     final tasks = context.watch<TaskProvider>();
-    final habits = context.watch<HabitProvider>();
     final schedule = context.watch<ScheduleProvider>();
     final journal = context.watch<JournalProvider>();
 
@@ -167,9 +271,9 @@ class TodayScreen extends StatelessWidget {
             ),
           ),
           if (schedule.todayEvents.isEmpty)
-            AppCard(
-              margin: const EdgeInsets.symmetric(horizontal: 20),
-              child: const EmptyHint(
+            const AppCard(
+              margin: EdgeInsets.symmetric(horizontal: 20),
+              child: EmptyHint(
                 icon: Icons.view_timeline_outlined,
                 text: '还没有安排 · 点击「规划」为今天划定时间块',
               ),
@@ -197,122 +301,6 @@ class TodayScreen extends StatelessWidget {
                 ],
               ),
             ),
-          // 今日待办
-          SectionHeader(
-            title: '今日待办',
-            subtitle: '今日 ${tasks.todayTasks.length} 项 · 进行中 ${tasks.activeCount} 项',
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (onOpenTasks != null)
-                  GestureDetector(
-                    onTap: onOpenTasks,
-                    child: Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: Text(
-                        '全部 ${tasks.activeCount} 项',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: theme.primary,
-                        ),
-                      ),
-                    ),
-                  ),
-                _AddButton(
-                  onTap: () => showTaskEditor(context),
-                  theme: theme,
-                  label: '新建',
-                ),
-              ],
-            ),
-          ),
-          const QuickTaskInput(),
-          if (tasks.todayTasks.isEmpty)
-            AppCard(
-              margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-              child: const EmptyHint(
-                icon: Icons.checklist_rtl,
-                text: '今天还没有待办 · 快速记录或新建一项',
-              ),
-            )
-          else ...[
-            ...tasks.todayTasks.take(5).map((t) => TaskItemWidget(
-                  task: t,
-                  showDate: false,
-                  onToggle: () => tasks.toggleComplete(t.id),
-                  onEdit: () => showTaskEditor(context, task: t),
-                  onDelete: () => _confirmDeleteTask(context, t),
-                  onFocus: () => context.read<PomodoroProvider>().assignTask(t),
-                  onSchedule: () => showScheduleEditor(
-                    context,
-                    date: now,
-                    title: t.title,
-                    taskId: t.id,
-                  ),
-                )),
-            if (tasks.todayTasks.length > 5 && onOpenTasks != null)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 2, 20, 2),
-                child: GestureDetector(
-                  onTap: onOpenTasks,
-                  child: Text(
-                    '查看全部 ${tasks.todayTasks.length} 项 ›',
-                    style: TextStyle(fontSize: 11, color: theme.muted),
-                  ),
-                ),
-              ),
-          ],
-          // 习惯打卡
-          SectionHeader(
-            title: '习惯打卡',
-            subtitle: '今日 ${habits.todayDone}/${habits.todayTotal}',
-            trailing: Padding(
-              padding: const EdgeInsets.only(right: 2),
-              child: Text(
-                habits.todayTotal == 0
-                    ? ''
-                    : '${(habits.todayRate * 100).round()}%',
-                style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: theme.primary),
-              ),
-            ),
-          ),
-          if (habits.habits.isEmpty)
-            AppCard(
-              margin: const EdgeInsets.symmetric(horizontal: 20),
-              child: const EmptyHint(
-                icon: Icons.repeat,
-                text: '还没有习惯 · 到「习惯」页添加第一个小习惯',
-              ),
-            )
-          else
-            SizedBox(
-              height: 96,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                itemCount: habits.habits.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 10),
-                itemBuilder: (ctx, i) {
-                  final h = habits.habits[i];
-                  return _HabitChip(
-                    habit: h,
-                    onTap: () => habits.toggleToday(h.id),
-                  );
-                },
-              ),
-            ),
-          // 今日时间轴(已完成的事)
-          _TodayDoneTimeline(
-            theme: theme,
-            today: now,
-            tasks: tasks,
-            habits: habits,
-            pomo: pomo,
-          ),
           // 今日复盘
           SectionHeader(
             title: '今日复盘',
@@ -406,19 +394,6 @@ class TodayScreen extends StatelessWidget {
     showToast(
       context,
       count == 0 ? '昨天没有可复制的行程' : '已把昨日 $count 项行程复制到今天',
-    );
-  }
-
-  Future<void> _confirmDeleteTask(BuildContext context, Task task) async {
-    final ok = await showConfirmDialog(context,
-        title: '删除「${task.title}」?', danger: true, confirmText: '删除');
-    if (!ok || !context.mounted) return;
-    final removed = await context.read<TaskProvider>().deleteTask(task.id);
-    if (removed == null || !context.mounted) return;
-    showUndoToast(
-      context,
-      '已删除「${removed.title}」',
-      onUndo: () => context.read<TaskProvider>().restoreTask(removed),
     );
   }
 }
@@ -670,237 +645,6 @@ class _EventTile extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _HabitChip extends StatelessWidget {
-  final Habit habit;
-  final VoidCallback onTap;
-
-  const _HabitChip({required this.habit, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.watch<SettingsProvider>().currentTheme;
-    final done = habit.doneToday;
-    final color = Color(habit.colorValue);
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        width: 88,
-        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-        decoration: BoxDecoration(
-          color: done ? color.withOpacity(0.16) : theme.card,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: done
-                ? color.withOpacity(0.5)
-                : theme.foreground.withOpacity(0.06),
-          ),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(habit.emoji, style: const TextStyle(fontSize: 21)),
-            const SizedBox(height: 4),
-            Text(
-              habit.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: theme.foreground,
-              ),
-            ),
-            const SizedBox(height: 5),
-            Icon(
-              done ? Icons.check_circle : Icons.radio_button_unchecked,
-              size: 16,
-              color: done ? color : theme.muted,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ============== 今日时间轴(已完成的事) ==============
-
-class _TimelineEntry {
-  final DateTime time;
-  final String title;
-  final String? subtitle;
-  final IconData icon;
-  final Color color;
-
-  const _TimelineEntry({
-    required this.time,
-    required this.title,
-    this.subtitle,
-    required this.icon,
-    required this.color,
-  });
-
-  String get hhmm =>
-      '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
-}
-
-class _TodayDoneTimeline extends StatelessWidget {
-  final ThemeDef theme;
-  final DateTime today;
-  final TaskProvider tasks;
-  final HabitProvider habits;
-  final PomodoroProvider pomo;
-
-  const _TodayDoneTimeline({
-    required this.theme,
-    required this.today,
-    required this.tasks,
-    required this.habits,
-    required this.pomo,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final entries = <_TimelineEntry>[];
-
-    // 今天完成的任务(有精确时间)
-    for (final t in tasks.completedTasks) {
-      if (t.completedAt == null) continue;
-      if (!isSameDate(t.completedAt!, today)) continue;
-      entries.add(_TimelineEntry(
-        time: t.completedAt!,
-        title: t.title,
-        subtitle: t.priority.label.isNotEmpty ? '任务 · ${t.priority.label}' : '任务',
-        icon: Icons.task_alt,
-        color: theme.primary,
-      ));
-    }
-
-    // 今天打过卡的习惯(有精确时间, 新数据) / 老数据没时间时显示为 00:00
-    for (final h in habits.habits) {
-      if (!h.doneToday) continue;
-      final time = h.checkInTimeOn(today) ??
-          DateTime(today.year, today.month, today.day);
-      entries.add(_TimelineEntry(
-        time: time,
-        title: h.name,
-        subtitle: '习惯打卡',
-        icon: Icons.task_alt,
-        color: Color(h.colorValue),
-      ));
-    }
-
-    // 今天完成的专注阶段
-    for (final r in pomo.records) {
-      if (r.type != PomodoroType.work) continue;
-      if (!isSameDate(r.completedAt, today)) continue;
-      entries.add(_TimelineEntry(
-        time: r.completedAt,
-        title: r.taskTitle?.isNotEmpty == true
-            ? '${r.taskTitle} · 专注 ${r.durationMinutes}min'
-            : '专注 ${r.durationMinutes}min',
-        subtitle: '番茄钟',
-        icon: Icons.timer_outlined,
-        color: const Color(0xFFF06292),
-      ));
-    }
-
-    entries.sort((a, b) => a.time.compareTo(b.time));
-
-    if (entries.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SectionHeader(
-          title: '今日时间轴',
-          subtitle: '已完成 ${entries.length} 件事',
-          margin: const EdgeInsets.fromLTRB(20, 18, 20, 10),
-        ),
-        AppCard(
-          margin: const EdgeInsets.symmetric(horizontal: 20),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          child: Column(
-            children: [
-              for (int i = 0; i < entries.length; ++i) ...[
-                _timelineItem(entries[i], i == entries.length - 1),
-                if (i < entries.length - 1)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 15),
-                    child: Container(
-                      width: 1,
-                      height: 14,
-                      color: theme.foreground.withOpacity(0.07),
-                    ),
-                  ),
-              ],
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _timelineItem(_TimelineEntry e, bool last) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 30,
-            height: 22,
-            alignment: Alignment.centerRight,
-            child: Text(
-              e.hhmm,
-              style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: theme.muted),
-            ),
-          ),
-          const SizedBox(width: 6),
-          Container(
-            width: 16,
-            height: 16,
-            decoration: BoxDecoration(
-              color: e.color.withOpacity(0.18),
-              shape: BoxShape.circle,
-            ),
-            alignment: Alignment.center,
-            child: Icon(e.icon, size: 11, color: e.color),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  e.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: theme.foreground),
-                ),
-                if (e.subtitle != null)
-                  Text(
-                    e.subtitle!,
-                    style: TextStyle(fontSize: 10, color: theme.muted),
-                  ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }

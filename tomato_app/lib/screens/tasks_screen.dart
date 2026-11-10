@@ -1,8 +1,9 @@
 // screens/tasks_screen.dart - 待办管理
+// v3.0: 单一列表, 按优先级排序(置顶 > 高 > 中 > 低);
+//       逾期置顶区; 周期任务由「周期管理」入口统一管理
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../core/utils.dart';
 import '../models/task.dart';
 import '../providers/pomodoro_provider.dart';
 import '../providers/settings_provider.dart';
@@ -11,6 +12,7 @@ import '../widgets/schedule_editor.dart';
 import '../widgets/task_input.dart';
 import '../widgets/task_item.dart';
 import '../widgets/ui.dart';
+import 'recurring_tasks_screen.dart';
 
 class TasksScreen extends StatefulWidget {
   const TasksScreen({super.key});
@@ -20,9 +22,17 @@ class TasksScreen extends StatefulWidget {
 }
 
 class _TasksScreenState extends State<TasksScreen> {
-  int _tab = 0; // 0 进行中, 1 已完成
   String? _tag;
   final _search = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    // 打开待办页时检查是否有休眠周期任务到期回归
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<TaskProvider>().refreshRecurring();
+    });
+  }
 
   @override
   void dispose() {
@@ -39,25 +49,9 @@ class _TasksScreenState extends State<TasksScreen> {
       tasks = tasks.where((t) => t.tags.contains(_tag)).toList();
     }
 
-    final weekEnd = startOfWeek(DateTime.now()).add(const Duration(days: 7));
-
     final overdue = tasks.where((t) => t.isOverdue).toList();
-    final dueToday = tasks.where((t) => !t.isOverdue && t.isDueToday).toList();
-    final dueWeek = tasks
-        .where((t) =>
-            !t.isOverdue &&
-            !t.isDueToday &&
-            t.dueDate != null &&
-            t.dueDate!.isBefore(weekEnd))
-        .toList();
-    final later = tasks
-        .where((t) =>
-            t.dueDate != null &&
-            !t.isOverdue &&
-            !t.isDueToday &&
-            !t.dueDate!.isBefore(weekEnd))
-        .toList();
-    final noDue = tasks.where((t) => t.dueDate == null).toList();
+    final normal = tasks.where((t) => !t.isOverdue).toList();
+    final recurringCount = provider.recurringTasks.length;
 
     return SingleChildScrollView(
       child: Column(
@@ -83,6 +77,15 @@ class _TasksScreenState extends State<TasksScreen> {
                   ],
                 ),
                 const Spacer(),
+                if (recurringCount > 0)
+                  IconButton(
+                    tooltip: '周期管理',
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                          builder: (_) => const RecurringTasksScreen()),
+                    ),
+                    icon: Icon(Icons.repeat, size: 20, color: theme.primary),
+                  ),
                 FilledButton.icon(
                   style: FilledButton.styleFrom(
                     backgroundColor: theme.primary,
@@ -121,33 +124,7 @@ class _TasksScreenState extends State<TasksScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 12),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Row(
-              children: [
-                PillChip(
-                  label: '进行中 ${provider.activeCount}',
-                  selected: _tab == 0,
-                  onTap: () => setState(() => _tab = 0),
-                ),
-                const SizedBox(width: 8),
-                PillChip(
-                  label: '已完成 ${provider.completedTasks.length}',
-                  selected: _tab == 1,
-                  onTap: () => setState(() => _tab = 1),
-                ),
-                const Spacer(),
-                if (_tab == 0 && overdue.isNotEmpty)
-                  TinyBadge(
-                    text: '逾期 ${overdue.length}',
-                    color: const Color(0xFFFF5252),
-                    icon: Icons.warning_amber_rounded,
-                  ),
-              ],
-            ),
-          ),
-          if (_tab == 0 && provider.activeTags.isNotEmpty)
+          if (provider.activeTags.isNotEmpty)
             SizedBox(
               height: 34,
               child: ListView(
@@ -168,61 +145,22 @@ class _TasksScreenState extends State<TasksScreen> {
                 ],
               ),
             ),
-          if (_tab == 0) ...[
-            if (tasks.isEmpty)
-              AppCard(
-                margin: const EdgeInsets.fromLTRB(20, 18, 20, 0),
-                child: EmptyHint(
-                  icon: _search.text.isEmpty
-                      ? Icons.checklist_rtl
-                      : Icons.search_off,
-                  text: _search.text.isEmpty
-                      ? '暂无进行中的待办\n点击「新建」或到今日页快速记录'
-                      : '没有匹配的待办',
-                ),
-              )
-            else ...[
-              if (overdue.isNotEmpty)
-                _group(
-                  '已逾期',
-                  overdue,
-                  trailing: GestureDetector(
-                    onTap: () => _postponeOverdue(context),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 9, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFF5252).withOpacity(0.10),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Text(
-                        '全部顺延到明天',
-                        style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFFFF5252)),
-                      ),
-                    ),
-                  ),
-                ),
-              if (dueToday.isNotEmpty) _group('今天', dueToday),
-              if (dueWeek.isNotEmpty) _group('本周', dueWeek),
-              if (later.isNotEmpty) _group('之后', later),
-              if (noDue.isNotEmpty) _group('收集箱', noDue),
-            ],
-          ] else ...[
-            if (provider.completedTasks.isEmpty)
-              AppCard(
-                margin: const EdgeInsets.fromLTRB(20, 18, 20, 0),
-                child: const EmptyHint(
-                  icon: Icons.task_alt,
-                  text: '还没有完成的待办 · 完成一项会有满满的成就感',
-                ),
-              )
-            else ...[
-              SectionHeader(title: '已完成', subtitle: '共 ${provider.completedTasks.length} 项'),
-              ...provider.completedTasks.map(_tile),
-            ],
+          const SizedBox(height: 8),
+          if (tasks.isEmpty)
+            AppCard(
+              margin: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+              child: EmptyHint(
+                icon: _search.text.isEmpty
+                    ? Icons.checklist_rtl
+                    : Icons.search_off,
+                text: _search.text.isEmpty
+                    ? '暂无进行中的待办\n点击「新建」添加第一件事'
+                    : '没有匹配的待办',
+              ),
+            )
+          else ...[
+            if (overdue.isNotEmpty) _group('已逾期', overdue),
+            if (normal.isNotEmpty) ...normal.map(_tile),
           ],
           const SizedBox(height: 110),
         ],
@@ -250,10 +188,6 @@ class _TasksScreenState extends State<TasksScreen> {
       onDelete: () => _delete(t),
       onFocus: () => context.read<PomodoroProvider>().assignTask(t),
       onPin: () => provider.togglePin(t.id),
-      onTomorrow: () => provider.setDueDate(
-          t.id, DateTime.now().add(const Duration(days: 1))),
-      onNextWeek: () => provider.setDueDate(
-          t.id, DateTime.now().add(const Duration(days: 7))),
       onDuplicate: () async {
         final copy = await provider.duplicateTask(t.id);
         if (copy != null && mounted) showToast(context, '已复制「${copy.title}」');
@@ -265,14 +199,6 @@ class _TasksScreenState extends State<TasksScreen> {
         taskId: t.id,
       ),
     );
-  }
-
-  Future<void> _postponeOverdue(BuildContext ctx) async {
-    final moved =
-        await ctx.read<TaskProvider>().postponeOverdueToTomorrow();
-    if (moved > 0 && mounted) {
-      showToast(context, '已把 $moved 项逾期任务顺延到明天');
-    }
   }
 
   Future<void> _delete(Task t) async {

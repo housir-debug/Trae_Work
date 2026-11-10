@@ -4,11 +4,12 @@ import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
 
 import '../core/utils.dart';
+import '../models/completion_record.dart';
 import '../models/journal_entry.dart';
 import '../models/pomodoro_record.dart';
 import '../models/schedule_event.dart';
+import '../providers/completion_provider.dart';
 import '../providers/goal_provider.dart';
-import '../providers/habit_provider.dart';
 import '../providers/journal_provider.dart';
 import '../providers/pomodoro_provider.dart';
 import '../providers/schedule_provider.dart';
@@ -36,28 +37,41 @@ class _ChartPoint {
 
 class _StatsScreenState extends State<StatsScreen> {
   int _days = 7;
+  bool _yearMode = false;
 
   @override
   Widget build(BuildContext context) {
     final theme = context.watch<SettingsProvider>().currentTheme;
     final pomo = context.watch<PomodoroProvider>();
     final tasks = context.watch<TaskProvider>();
-    final habits = context.watch<HabitProvider>();
+    final completions = context.watch<CompletionProvider>();
     final goals = context.watch<GoalProvider>();
     final schedule = context.watch<ScheduleProvider>();
     final journal = context.watch<JournalProvider>();
 
     final now = DateTime.now();
     final today = startOfDay(now);
-    final start = today.subtract(Duration(days: _days - 1));
-    final end = today.add(const Duration(days: 1));
+    final year = now.year;
+    final start = _yearMode
+        ? DateTime(year, 1, 1)
+        : today.subtract(Duration(days: _days - 1));
+    final end = _yearMode
+        ? DateTime(year + 1, 1, 1)
+        : today.add(const Duration(days: 1));
 
-    final focusData = pomo.workMinutesLastDays(_days);
+    final focusData =
+        _yearMode ? _yearlyFocus(pomo, year) : pomo.workMinutesLastDays(_days);
     final focusTotal = focusData.fold<int>(0, (a, b) => a + b);
-    final focusCount = pomo.workCountLastDays(_days).fold<int>(0, (a, b) => a + b);
+    final focusCount = _yearMode
+        ? pomo.records
+            .where(
+                (r) => r.type == PomodoroType.work && r.completedAt.year == year)
+            .length
+        : pomo.workCountLastDays(_days).fold<int>(0, (a, b) => a + b);
     final taskDone = tasks.completedBetween(start, end);
-    final habitChecks = habits.totalChecksBetween(start, end);
-    final points = _buckets(focusData, _days);
+    final doneCount = completions.countBetween(start, end);
+    final points =
+        _yearMode ? _monthBuckets(focusData, now) : _buckets(focusData, _days);
 
     final activity = <String, int>{};
     for (final r in pomo.records) {
@@ -71,10 +85,10 @@ class _StatsScreenState extends State<StatsScreen> {
       final key = dateKey(c);
       activity[key] = (activity[key] ?? 0) + 30;
     }
-    for (final h in habits.habits) {
-      for (final k in h.checkIns) {
-        activity[k] = (activity[k] ?? 0) + 20;
-      }
+    for (final r in completions.records) {
+      if (r.kind == CompletionKind.pomodoro) continue;
+      final key = dateKey(r.timestamp);
+      activity[key] = (activity[key] ?? 0) + 20;
     }
 
     final bestHour = _bestHour(pomo.records, start, end);
@@ -141,20 +155,35 @@ class _StatsScreenState extends State<StatsScreen> {
               children: [
                 PillChip(
                   label: '7 天',
-                  selected: _days == 7,
-                  onTap: () => setState(() => _days = 7),
+                  selected: !_yearMode && _days == 7,
+                  onTap: () => setState(() {
+                    _days = 7;
+                    _yearMode = false;
+                  }),
                 ),
                 const SizedBox(width: 8),
                 PillChip(
                   label: '30 天',
-                  selected: _days == 30,
-                  onTap: () => setState(() => _days = 30),
+                  selected: !_yearMode && _days == 30,
+                  onTap: () => setState(() {
+                    _days = 30;
+                    _yearMode = false;
+                  }),
                 ),
                 const SizedBox(width: 8),
                 PillChip(
                   label: '90 天',
-                  selected: _days == 90,
-                  onTap: () => setState(() => _days = 90),
+                  selected: !_yearMode && _days == 90,
+                  onTap: () => setState(() {
+                    _days = 90;
+                    _yearMode = false;
+                  }),
+                ),
+                const SizedBox(width: 8),
+                PillChip(
+                  label: '今年',
+                  selected: _yearMode,
+                  onTap: () => setState(() => _yearMode = true),
                 ),
               ],
             ),
@@ -194,11 +223,11 @@ class _StatsScreenState extends State<StatsScreen> {
                   children: [
                     Expanded(
                       child: _OverviewCard(
-                        icon: Icons.repeat,
+                        icon: Icons.done_all,
                         color: const Color(0xFF6BCB9D),
-                        label: '习惯打卡',
-                        value: '$habitChecks',
-                        unit: '次',
+                        label: '完成事项',
+                        value: '$doneCount',
+                        unit: '件',
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -218,7 +247,7 @@ class _StatsScreenState extends State<StatsScreen> {
           ),
           // 专注柱状图
           SectionHeader(
-            title: '近 $_days 天专注趋势',
+            title: _yearMode ? '今年各月专注' : '近 $_days 天专注趋势',
             subtitle: '共 $focusTotal 分钟 · $focusCount 个番茄',
           ),
           AppCard(
@@ -365,74 +394,34 @@ class _StatsScreenState extends State<StatsScreen> {
               ],
             ),
           ),
+          // 年度完成节奏(仅年视图)
+          if (_yearMode) ...[
+            SectionHeader(
+              title: '年度完成节奏',
+              subtitle: '各月完成事项数(待办/日程/打卡/专注)',
+            ),
+            AppCard(
+              margin: const EdgeInsets.symmetric(horizontal: 20),
+              padding: const EdgeInsets.fromLTRB(10, 18, 14, 10),
+              child: SizedBox(
+                height: 150,
+                child: _YearlyCompletionChart(
+                  counts: completions.monthlyCounts(year),
+                  currentMonth: now.month,
+                ),
+              ),
+            ),
+          ],
           // 时间分配
           SectionHeader(
-            title: '近 $_days 天时间投入',
+            title: _yearMode ? '今年时间投入' : '近 $_days 天时间投入',
             subtitle: '来自你规划的时间块',
           ),
           _TimeAllocationCard(
-            categoryMinutes: schedule.categoryMinutesInDays(_days),
+            categoryMinutes:
+                schedule.categoryMinutesInDays(_yearMode ? 366 : _days),
             theme: theme,
             emptyText: '这段时间还没有时间块安排\n到今日页规划你的行程',
-          ),
-          // 习惯坚持率
-          SectionHeader(title: '习惯坚持率', subtitle: '近 30 天'),
-          AppCard(
-            margin: const EdgeInsets.symmetric(horizontal: 20),
-            padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
-            child: habits.habits.isEmpty
-                ? const EmptyHint(
-                    icon: Icons.repeat,
-                    text: '还没有习惯数据',
-                    padding: EdgeInsets.symmetric(vertical: 14),
-                  )
-                : Column(
-                    children: habits.habits.take(6).map((h) {
-                      final color = Color(h.colorValue);
-                      final rate = h.rate(30);
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 6),
-                        child: Row(
-                          children: [
-                            Text(h.emoji,
-                                style: const TextStyle(fontSize: 15)),
-                            const SizedBox(width: 8),
-                            SizedBox(
-                              width: 76,
-                              child: Text(
-                                h.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                    fontSize: 11,
-                                    color: theme.foreground),
-                              ),
-                            ),
-                            Expanded(
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(3),
-                                child: LinearProgressIndicator(
-                                  value: rate,
-                                  minHeight: 5,
-                                  backgroundColor: color.withOpacity(0.08),
-                                  valueColor:
-                                      AlwaysStoppedAnimation<Color>(color),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              '${(rate * 100).round()}%',
-                              style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w600,
-                                  color: color),
-                            ),
-                          ],
-                        ),
-                      );
-                    }).toList(),
-                  ),
           ),
           // 目标进度
           SectionHeader(title: '目标进度', subtitle: '${goals.goals.length} 个目标'),
@@ -519,6 +508,23 @@ class _StatsScreenState extends State<StatsScreen> {
     );
   }
 
+  List<int> _yearlyFocus(PomodoroProvider pomo, int year) {
+    final m = List<int>.filled(12, 0);
+    for (final r in pomo.records) {
+      if (r.type != PomodoroType.work) continue;
+      if (r.completedAt.year == year) {
+        m[r.completedAt.month - 1] += r.durationMinutes;
+      }
+    }
+    return m;
+  }
+
+  List<_ChartPoint> _monthBuckets(List<int> monthly, DateTime now) {
+    return List.generate(12, (i) {
+      return _ChartPoint('${i + 1}月', monthly[i], i == now.month - 1);
+    });
+  }
+
   List<_ChartPoint> _buckets(List<int> daily, int days) {
     final today = startOfDay(DateTime.now());
     if (days <= 7) {
@@ -586,9 +592,66 @@ class _StatsScreenState extends State<StatsScreen> {
       }
     }
     if (maxIdx < 0 || maxVal == 0) return null;
+    if (_yearMode) return '${maxIdx + 1} 月 ($maxVal 分钟)';
     final d = startOfDay(DateTime.now())
         .subtract(Duration(days: daily.length - 1 - maxIdx));
     return '${shortDate(d)} ($maxVal 分钟)';
+  }
+}
+
+class _YearlyCompletionChart extends StatelessWidget {
+  final List<int> counts; // 12 个元素
+  final int currentMonth;
+
+  const _YearlyCompletionChart({
+    required this.counts,
+    required this.currentMonth,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.watch<SettingsProvider>().currentTheme;
+    final maxVal = counts.fold<int>(1, (a, b) => a > b ? a : b);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: List.generate(12, (i) {
+        final v = counts[i];
+        final isCurrent = i == currentMonth - 1;
+        final h = v == 0 ? 4.0 : (v / maxVal) * 110.0;
+        return Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                if (v > 0)
+                  Text('$v',
+                      style: TextStyle(
+                          fontSize: 8,
+                          color: isCurrent ? theme.accent : theme.muted)),
+                const SizedBox(height: 2),
+                Container(
+                  height: h,
+                  decoration: BoxDecoration(
+                    color: isCurrent
+                        ? theme.accent
+                        : theme.primary.withOpacity(0.65),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text('${i + 1}',
+                    style: TextStyle(
+                        fontSize: 8.5,
+                        color: isCurrent ? theme.accent : theme.muted,
+                        fontWeight:
+                            isCurrent ? FontWeight.w700 : FontWeight.w400)),
+              ],
+            ),
+          ),
+        );
+      }),
+    );
   }
 }
 

@@ -41,9 +41,8 @@ class _TaskEditorState extends State<_TaskEditor> {
   late final TextEditingController _subtaskInput;
   late TaskPriority _priority;
   late int _estimate;
-  DateTime? _dueDate;
   late List<Subtask> _subtasks;
-  late RepeatRule _repeat;
+  late int _repeatDays; // 0 = 不重复
 
   @override
   void initState() {
@@ -55,9 +54,8 @@ class _TaskEditorState extends State<_TaskEditor> {
     _subtaskInput = TextEditingController();
     _priority = t?.priority ?? TaskPriority.medium;
     _estimate = t?.estimatedPomodoros ?? 2;
-    _dueDate = t?.dueDate;
     _subtasks = List<Subtask>.from(t?.subtasks ?? []);
-    _repeat = t?.repeat ?? RepeatRule.none;
+    _repeatDays = t?.repeatIntervalDays ?? 0;
   }
 
   @override
@@ -134,65 +132,49 @@ class _TaskEditorState extends State<_TaskEditor> {
             );
           }).toList(),
         ),
+        if (widget.existing?.dueDate != null) ...[
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Icon(Icons.event_outlined, size: 14, color: theme.primary),
+              const SizedBox(width: 5),
+              Text(
+                '日程联动 · ${shortDate(widget.existing!.dueDate!)}(在日程中调整)',
+                style: TextStyle(fontSize: 11, color: theme.primary),
+              ),
+            ],
+          ),
+        ],
         const SizedBox(height: 14),
-        Text('截止日期', style: TextStyle(fontSize: 12, color: theme.muted)),
+        Text('重复周期(满周期后自动回归, 优先级随时间递进)',
+            style: TextStyle(fontSize: 12, color: theme.muted)),
         const SizedBox(height: 6),
         Wrap(
           spacing: 8,
           runSpacing: 6,
           children: [
+            for (final (label, days) in [
+              ('不重复', 0),
+              ('每天', 1),
+              ('每3天', 3),
+              ('每周', 7),
+              ('每两周', 14),
+              ('每月', 30),
+            ])
+              PillChip(
+                label: label,
+                selected: _repeatDays == days,
+                onTap: () => setState(() => _repeatDays = days),
+              ),
             PillChip(
-              label: '无期限',
-              selected: _dueDate == null,
-              onTap: () => setState(() => _dueDate = null),
-            ),
-            PillChip(
-              label: '今天',
-              selected: _dueDate != null && isSameDate(_dueDate!, DateTime.now()),
-              onTap: () => setState(() => _dueDate = startOfDay(DateTime.now())),
-            ),
-            PillChip(
-              label: '明天',
-              selected: _dueDate != null &&
-                  isSameDate(_dueDate!,
-                      DateTime.now().add(const Duration(days: 1))),
-              onTap: () => setState(() => _dueDate =
-                  startOfDay(DateTime.now().add(const Duration(days: 1)))),
-            ),
-            PillChip(
-              label: _dueDate == null ||
-                      isSameDate(_dueDate!, DateTime.now()) ||
-                      isSameDate(_dueDate!,
-                          DateTime.now().add(const Duration(days: 1)))
-                  ? '选择日期'
-                  : shortDate(_dueDate!),
-              icon: Icons.calendar_today_outlined,
-              selected: false,
-              onTap: () async {
-                final picked = await showDatePicker(
-                  context: context,
-                  initialDate: _dueDate ?? DateTime.now(),
-                  firstDate: DateTime.now().subtract(const Duration(days: 365)),
-                  lastDate: DateTime.now().add(const Duration(days: 365 * 3)),
-                );
-                if (picked != null) setState(() => _dueDate = startOfDay(picked));
-              },
+              label: [0, 1, 3, 7, 14, 30].contains(_repeatDays)
+                  ? '自定义'
+                  : '每 $_repeatDays 天',
+              icon: Icons.tune,
+              selected: ![0, 1, 3, 7, 14, 30].contains(_repeatDays),
+              onTap: () => _pickCustomDays(),
             ),
           ],
-        ),
-        const SizedBox(height: 14),
-        Text('重复', style: TextStyle(fontSize: 12, color: theme.muted)),
-        const SizedBox(height: 6),
-        Wrap(
-          spacing: 8,
-          runSpacing: 6,
-          children: RepeatRule.values.map((r) {
-            return PillChip(
-              label: r.label,
-              selected: _repeat == r,
-              onTap: () => setState(() => _repeat = r),
-            );
-          }).toList(),
         ),
         const SizedBox(height: 14),
         Row(
@@ -337,6 +319,48 @@ class _TaskEditorState extends State<_TaskEditor> {
     );
   }
 
+  Future<void> _pickCustomDays() async {
+    final theme = context.read<SettingsProvider>().currentTheme;
+    final controller = TextEditingController(
+        text: _repeatDays > 0 ? '$_repeatDays' : '');
+    final days = await showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: theme.cardBackground,
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Text('自定义周期(天)',
+            style: TextStyle(color: theme.foreground, fontSize: 17)),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          style: TextStyle(fontSize: 14, color: theme.foreground),
+          decoration:
+              const InputDecoration(hintText: '如: 10 表示每 10 天一次'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('取消', style: TextStyle(color: theme.muted)),
+          ),
+          TextButton(
+            onPressed: () {
+              final v = int.tryParse(controller.text.trim());
+              if (v != null && v >= 1 && v <= 365) {
+                Navigator.pop(ctx, v);
+              }
+            },
+            child: Text('确定',
+                style: TextStyle(
+                    color: theme.primary, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+    if (days != null) setState(() => _repeatDays = days);
+  }
+
   void _save() {
     final title = _title.text.trim();
     if (title.isEmpty) {
@@ -349,20 +373,24 @@ class _TaskEditorState extends State<_TaskEditor> {
         .where((e) => e.isNotEmpty)
         .toSet()
         .toList();
-    final due = _dueDate ??
-        (_repeat.repeats ? startOfDay(DateTime.now()) : null);
-    final base = widget.existing ??
-        Task(title: title, estimatedPomodoros: _estimate);
+    final existing = widget.existing;
+    final base =
+        existing ?? Task(title: title, estimatedPomodoros: _estimate);
+    final repeatChanged =
+        existing == null || existing.repeatIntervalDays != _repeatDays;
     final result = base.copyWith(
       title: title,
       notes: _notes.text.trim(),
       priority: _priority,
       estimatedPomodoros: _estimate,
-      dueDate: due,
-      clearDueDate: due == null,
       tags: tags,
       subtasks: _subtasks,
-      repeat: _repeat,
+      repeatIntervalDays: _repeatDays,
+      // 周期变化时重新开始计算周期
+      cycleStartAt:
+          _repeatDays > 0 && repeatChanged ? DateTime.now() : null,
+      clearCycleStart: _repeatDays == 0,
+      clearNextAppearance: repeatChanged,
     );
     Navigator.pop(context, result);
   }

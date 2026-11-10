@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/app_settings.dart';
+import '../models/completion_record.dart';
 import '../models/goal.dart';
 import '../models/habit.dart';
 import '../models/journal_entry.dart';
@@ -27,6 +28,8 @@ class StorageService {
   static const kEvents = 'schedule_events';
   static const kJournals = 'journal_entries';
   static const kTimerState = 'timer_state';
+  static const kCompletionLog = 'completion_log';
+  static const kHabitsMigrated = 'habits_migrated_v3';
 
   static const List<String> allKeys = [
     kSettings,
@@ -37,6 +40,7 @@ class StorageService {
     kGoals,
     kEvents,
     kJournals,
+    kCompletionLog,
   ];
 
   Future<void> init() async {
@@ -146,6 +150,27 @@ class StorageService {
 
   // ------- 番茄钟计时快照 -------
   String? loadTimerSnapshot() => _prefs.getString(kTimerState);
+
+  // ------- 完成记录(时间轴) -------
+  List<CompletionRecord> loadCompletionLog() {
+    final s = _prefs.getString(kCompletionLog);
+    if (s == null) return [];
+    final list = jsonDecode(s) as List;
+    return list
+        .map((e) => CompletionRecord.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> saveCompletionLog(List<CompletionRecord> log) async {
+    await _prefs.setString(
+        kCompletionLog, jsonEncode(log.map((r) => r.toJson()).toList()));
+  }
+
+  bool get habitsMigrated => _prefs.getBool(kHabitsMigrated) ?? false;
+
+  Future<void> markHabitsMigrated() async {
+    await _prefs.setBool(kHabitsMigrated, true);
+  }
 
   Future<void> saveTimerSnapshot(String? raw) async {
     if (raw == null) {

@@ -1,36 +1,53 @@
 // providers/task_provider.dart - 待办任务状态
+// v3.0: 单一优先级列表; 周期任务完成后休眠、满周期自动回归;
+//       加载时自动裁剪 366 天前的已完成任务
 import 'package:flutter/material.dart';
 
 import '../core/utils.dart';
+import '../models/completion_record.dart';
 import '../models/task.dart';
 import '../services/storage_service.dart';
+import 'completion_provider.dart';
 
 class TaskProvider extends ChangeNotifier {
   final StorageService _storage;
   List<Task> _tasks = [];
 
+  /// 完成记录(时间轴), 由 main 注入
+  CompletionProvider? completions;
+
+  /// 日程联动(日程完成 -> 任务完成 反向同步), 由 main 注入
+  void Function(String taskId, bool done)? onTaskLinkedEvent;
+
+  static const int keepCompletedDays = 366;
+
   TaskProvider(this._storage);
 
   List<Task> get tasks => _tasks;
+
+  /// 按 id 查找任务(日程联动反向同步用)
+  Task? taskById(String id) {
+    for (final t in _tasks) {
+      if (t.id == id) return t;
+    }
+    return null;
+  }
 
   // --------- 派生字段缓存 ---------
   int _activeRevision = 0;
   int _activeLastRevision = -1;
   List<Task>? _activeCache;
 
+  /// 进行中的任务(不含休眠中的周期任务), 置顶优先, 再按有效优先级
   List<Task> get activeTasks {
     if (_activeLastRevision == _activeRevision && _activeCache != null) {
       return _activeCache!;
     }
-    final active = _tasks.where((t) => !t.isCompleted).toList();
+    final active = _tasks.where((t) => !t.isCompleted && !t.isDormant).toList();
     active.sort((a, b) {
       if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
-      final cmp = a.priority.rank.compareTo(b.priority.rank);
+      final cmp = a.effectivePriority.rank.compareTo(b.effectivePriority.rank);
       if (cmp != 0) return cmp;
-      final ad = a.dueDate, bd = b.dueDate;
-      if (ad != null && bd != null) return ad.compareTo(bd);
-      if (ad != null) return -1;
-      if (bd != null) return 1;
       return a.createdAt.compareTo(b.createdAt);
     });
     _activeCache = active;
@@ -42,6 +59,7 @@ class TaskProvider extends ChangeNotifier {
   int _completedLastRevision = -1;
   List<Task>? _completedCache;
 
+  /// 已完成任务(含休眠中的周期任务), 按完成时间倒序
   List<Task> get completedTasks {
     if (_completedLastRevision == _completedRevision && _completedCache != null) {
       return _completedCache!;
@@ -57,24 +75,16 @@ class TaskProvider extends ChangeNotifier {
   List<Task> get overdueTasks =>
       activeTasks.where((t) => t.isOverdue).toList();
 
-  List<Task> get todayTasks {
-    final todays =
-        activeTasks.where((t) => t.isOverdue || t.isDueToday).toList();
-    final remaining = 5 - todays.length;
-    final noDue = activeTasks
-        .where((t) => t.dueDate == null)
-        .take(remaining < 0 ? 0 : remaining)
-        .toList();
-    return [...todays, ...noDue];
-  }
+  int get activeCount => activeTasks.length;
 
-  int get activeCount => _tasks.where((t) => !t.isCompleted).length;
+  /// 全部周期任务(含休眠中), 周期管理页用
+  List<Task> get recurringTasks =>
+      _tasks.where((t) => t.isRecurring).toList();
 
   /// 进行中任务里出现过的全部标签(按使用频次降序)
   List<String> get activeTags {
     final counter = <String, int>{};
-    for (final t in _tasks) {
-      if (t.isCompleted) continue;
+    for (final t in activeTasks) {
       for (final tag in t.tags) {
         counter[tag] = (counter[tag] ?? 0) + 1;
       }
@@ -98,8 +108,50 @@ class TaskProvider extends ChangeNotifier {
 
   void load() {
     _tasks = _storage.loadTasks();
+    _pruneOld();
+    refreshRecurring(notify: false);
     _invalidateCaches();
     notifyListeners();
+  }
+
+  /// 自动裁剪 366 天前已完成的普通任务(周期任务保留, 它还要循环)
+  void _pruneOld() {
+    final cutoff = DateTime.now().subtract(const Duration(days: keepCompletedDays));
+    final before = _tasks.length;
+    _tasks.removeWhere((t) =>
+        t.isCompleted &&
+        !t.isRecurring &&
+        t.completedAt != null &&
+        t.completedAt!.isBefore(cutoff));
+    if (_tasks.length != before) {
+      _storage.saveTasks(_tasks);
+    }
+  }
+
+  /// 到期的休眠周期任务重新激活(满周期自动回归)
+  void refreshRecurring({bool notify = true}) {
+    final now = DateTime.now();
+    var changed = false;
+    for (var i = 0; i < _tasks.length; ++i) {
+      final t = _tasks[i];
+      if (t.isDormant && !t.nextAppearanceAt!.isAfter(now)) {
+        _tasks[i] = t.copyWith(
+          isCompleted: false,
+          clearCompletedAt: true,
+          clearNextAppearance: true,
+          cycleStartAt: now,
+          subtasks: t.subtasks
+              .map((s) => s.copyWith(isDone: false))
+              .toList(growable: false),
+        );
+        changed = true;
+      }
+    }
+    if (changed) {
+      _invalidateCaches();
+      _storage.saveTasks(_tasks);
+      if (notify) notifyListeners();
+    }
   }
 
   void _invalidateCaches() {
@@ -115,6 +167,9 @@ class TaskProvider extends ChangeNotifier {
   Future<void> flush() async => _persist();
 
   Future<void> addTask(Task task) async {
+    if (task.isRecurring && task.cycleStartAt == null) {
+      task.cycleStartAt = DateTime.now();
+    }
     _tasks.insert(0, task);
     _invalidateCaches();
     await _persist();
@@ -130,39 +185,48 @@ class TaskProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> toggleComplete(String id) async {
+  /// 完成/取消完成. fromSchedule=true 表示由日程勾选触发, 避免反向同步死循环
+  Future<void> toggleComplete(String id, {bool fromSchedule = false}) async {
     final idx = _tasks.indexWhere((t) => t.id == id);
     if (idx < 0) return;
     final t = _tasks[idx];
     final completing = !t.isCompleted;
-    _tasks[idx] = completing
-        ? t.copyWith(isCompleted: true, completedAt: DateTime.now())
-        : t.copyWith(isCompleted: false, clearCompletedAt: true);
+    final now = DateTime.now();
 
-    // 重复任务完成后自动生成下一次
-    if (completing && t.repeat.repeats) {
-      final nextDue = t.repeat.nextOccurrence(t.dueDate ?? DateTime.now());
-      _tasks.insert(
-        0,
-        Task(
-          title: t.title,
-          notes: t.notes,
-          priority: t.priority,
-          estimatedPomodoros: t.estimatedPomodoros,
-          dueDate: nextDue,
-          tags: List<String>.from(t.tags),
-          subtasks: t.subtasks
-              .map((s) => s.copyWith(isDone: false))
-              .toList(growable: false),
-          repeat: t.repeat,
-          isPinned: t.isPinned,
-        ),
+    if (completing) {
+      if (t.isRecurring) {
+        // 周期任务: 完成后休眠, 满周期后自动回归(周期从完成时刻起算)
+        _tasks[idx] = t.copyWith(
+          isCompleted: true,
+          completedAt: now,
+          nextAppearanceAt: now.add(Duration(days: t.repeatIntervalDays)),
+        );
+      } else {
+        _tasks[idx] = t.copyWith(isCompleted: true, completedAt: now);
+      }
+      completions?.add(CompletionRecord(
+        title: t.title,
+        kind: CompletionKind.task,
+        timestamp: now,
+        note: t.isRecurring ? '周期:${t.repeatLabel}' : '',
+      ));
+    } else {
+      _tasks[idx] = t.copyWith(
+        isCompleted: false,
+        clearCompletedAt: true,
+        clearNextAppearance: true,
+        cycleStartAt: t.isRecurring ? now : t.cycleStartAt,
       );
     }
 
     _invalidateCaches();
     await _persist();
     notifyListeners();
+
+    // 反向同步: 日程联动任务完成时, 把对应日程块标记完成
+    if (!fromSchedule) {
+      onTaskLinkedEvent?.call(id, completing);
+    }
   }
 
   Future<void> incrementPomodoro(String id) async {
@@ -171,7 +235,6 @@ class TaskProvider extends ChangeNotifier {
     _tasks[idx] = _tasks[idx].copyWith(
       completedPomodoros: _tasks[idx].completedPomodoros + 1,
     );
-    // 只影响任务详情显示, active 排序里用不到, 但 completedTasks 排序用 createdAt 不影响
     await _persist();
     notifyListeners();
   }
@@ -206,33 +269,38 @@ class TaskProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 调整截止日期(用于「明天」「下周」快捷操作)
-  Future<void> setDueDate(String id, DateTime date) async {
+  /// 取消周期(变成普通一次性任务)
+  Future<void> cancelRepeat(String id) async {
     final idx = _tasks.indexWhere((t) => t.id == id);
     if (idx < 0) return;
-    _tasks[idx] = _tasks[idx].copyWith(dueDate: startOfDay(date));
+    _tasks[idx] = _tasks[idx].copyWith(
+      repeatIntervalDays: 0,
+      clearNextAppearance: true,
+      clearCycleStart: true,
+    );
     _invalidateCaches();
     await _persist();
     notifyListeners();
   }
 
-  /// 把所有逾期任务顺延到明天
-  Future<int> postponeOverdueToTomorrow() async {
-    final tomorrow = startOfDay(DateTime.now().add(const Duration(days: 1)));
-    var count = 0;
-    for (var i = 0; i < _tasks.length; ++i) {
-      final t = _tasks[i];
-      if (!t.isCompleted && t.isOverdue) {
-        _tasks[i] = t.copyWith(dueDate: tomorrow);
-        count++;
-      }
-    }
-    if (count > 0) {
-      _invalidateCaches();
-      await _persist();
-      notifyListeners();
-    }
-    return count;
+  /// 休眠中的周期任务立即重新激活
+  Future<void> activateNow(String id) async {
+    final idx = _tasks.indexWhere((t) => t.id == id);
+    if (idx < 0) return;
+    final t = _tasks[idx];
+    if (!t.isDormant) return;
+    _tasks[idx] = t.copyWith(
+      isCompleted: false,
+      clearCompletedAt: true,
+      clearNextAppearance: true,
+      cycleStartAt: DateTime.now(),
+      subtasks: t.subtasks
+          .map((s) => s.copyWith(isDone: false))
+          .toList(growable: false),
+    );
+    _invalidateCaches();
+    await _persist();
+    notifyListeners();
   }
 
   /// 复制一份任务(子任务进度重置)
@@ -250,7 +318,8 @@ class TaskProvider extends ChangeNotifier {
       subtasks: t.subtasks
           .map((s) => s.copyWith(isDone: false))
           .toList(growable: false),
-      repeat: t.repeat,
+      repeatIntervalDays: t.repeatIntervalDays,
+      cycleStartAt: t.isRecurring ? DateTime.now() : null,
     );
     _tasks.insert(0, copy);
     _invalidateCaches();
@@ -283,18 +352,8 @@ class TaskProvider extends ChangeNotifier {
     }).toList();
   }
 
-  /// 清理完成超过 [days] 天的任务, 返回清理条数(默认 180 天)
-  Future<int> pruneCompletedOlderThan({int days = 180}) async {
-    final cutoff = DateTime.now().subtract(Duration(days: days));
-    final before = _tasks.length;
-    _tasks.removeWhere(
-        (t) => t.isCompleted && t.completedAt != null && t.completedAt!.isBefore(cutoff));
-    final removed = before - _tasks.length;
-    if (removed > 0) {
-      _invalidateCaches();
-      await _persist();
-      notifyListeners();
-    }
-    return removed;
+  /// 导入备份后重新读取本地数据
+  void reloadFromStorage() {
+    load();
   }
 }

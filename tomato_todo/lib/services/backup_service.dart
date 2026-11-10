@@ -38,6 +38,17 @@ class BackupService {
     return file.path;
   }
 
+  /// 生成用于系统分享的备份文件
+  /// 注意: 必须放在缓存目录, share_plus 的 FileProvider 只对外暴露 cache,
+  /// 直接分享 documents 目录下的文件会抛 "Failed to find configured root"
+  Future<String> createShareableBackup() async {
+    final dir = await getTemporaryDirectory();
+    final file = File(
+        '${dir.path}/shiguang_backup_${_stamp(DateTime.now())}.json');
+    await file.writeAsString(storage.exportBackup());
+    return file.path;
+  }
+
   /// 今日是否已有自动快照
   Future<bool> hasSnapshotToday() async {
     final dir = await _backupDir();

@@ -3,14 +3,17 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../core/utils.dart';
 import '../models/app_settings.dart';
+import '../models/completion_record.dart';
 import '../models/pomodoro_record.dart';
 import '../models/task.dart';
 import '../services/notification_service.dart';
 import '../services/storage_service.dart';
 import '../services/timer_service.dart';
+import 'completion_provider.dart';
 
 class PomodoroProvider extends ChangeNotifier {
   final StorageService _storage;
@@ -24,8 +27,20 @@ class PomodoroProvider extends ChangeNotifier {
   /// 可注入的通知服务(由 main 注入)
   NotificationService? notifications;
 
+  /// 完成记录(时间轴), 由 main 注入
+  CompletionProvider? completions;
+
   /// 每秒变化的剩余秒数(独立通知, 避免整页重建)
   final ValueNotifier<int> remainingNotifier = ValueNotifier<int>(0);
+
+  /// 阶段完成信号(每次完成 +1, 专注页监听并弹选择框)
+  final ValueNotifier<int> completionSignal = ValueNotifier<int>(0);
+
+  /// 刚完成的阶段('work' / 'break'), 供弹窗判断
+  String? lastCompletedKind;
+
+  /// 选择「继续工作」后, 下一个工作完成时强制进入休息
+  bool _forcedBreakPending = false;
 
   /// 完成一个专注阶段时回调(用于给任务累加番茄)
   void Function(PomodoroRecord record, String? taskId)? onWorkCompleted;
@@ -60,6 +75,13 @@ class PomodoroProvider extends ChangeNotifier {
     _settings = settings;
     _completedWorkCount = _storage.loadCompletedWorkCount();
     _records = _storage.loadRecords();
+    // 自动裁剪 366 天前的番茄记录
+    final cutoff = DateTime.now().subtract(const Duration(days: 366));
+    final before = _records.length;
+    _records.removeWhere((r) => r.completedAt.isBefore(cutoff));
+    if (_records.length != before) {
+      _storage.saveRecords(_records);
+    }
 
     TimerSnapshot? snapshot;
     final raw = _storage.loadTimerSnapshot();
@@ -105,28 +127,90 @@ class PomodoroProvider extends ChangeNotifier {
           );
           _records.add(enriched);
           _storage.saveRecords(_records);
-          if (enriched.type == PomodoroType.work) {
+
+          final wasWork = enriched.type == PomodoroType.work;
+          if (wasWork) {
             _completedWorkCount++;
             _storage.saveCompletedWorkCount(_completedWorkCount);
             onWorkCompleted?.call(enriched, _currentTaskId);
+            // 写入时间轴
+            completions?.add(CompletionRecord(
+              title: enriched.taskTitle?.isNotEmpty == true
+                  ? enriched.taskTitle!
+                  : '专注',
+              kind: CompletionKind.pomodoro,
+              timestamp: enriched.completedAt,
+              note: '专注 ${enriched.durationMinutes} 分钟',
+            ));
           }
+
+          // 强提醒: 震动 + 提示音(重复一次更醒目)
           if (_settings.enableVibrate) {
-            HapticFeedback.mediumImpact();
+            HapticFeedback.vibrate();
+            Future.delayed(const Duration(milliseconds: 400), () {
+              HapticFeedback.mediumImpact();
+            });
           }
           if (_settings.showNotification) {
             SystemSound.play(SystemSoundType.alert);
+            Future.delayed(const Duration(milliseconds: 700), () {
+              SystemSound.play(SystemSoundType.alert);
+            });
           }
           notifications?.cancelTimerEnd();
-          _emitTick();
-          notifyListeners();
 
-          if (_timer!.settings.autoStartNext) {
-            Future.delayed(const Duration(milliseconds: 800), () {
-              start();
-            });
+          // 专注期间保持屏幕常亮, 阶段结束后释放
+          if (!isRunning) {
+            WakelockPlus.disable();
+          }
+
+          if (wasWork) {
+            lastCompletedKind = 'work';
+            if (_forcedBreakPending) {
+              // 「继续工作」后的强制休息: 不再询问, 直接进入休息
+              _forcedBreakPending = false;
+              _emitTick();
+              notifyListeners();
+              Future.delayed(const Duration(milliseconds: 600), () {
+                start(); // 阶段已在 timer 内切换为长/短休息
+              });
+            } else {
+              // 通知专注页弹选择框: 继续工作 / 去休息
+              _emitTick();
+              notifyListeners();
+              completionSignal.value++;
+            }
+          } else {
+            // 休息结束 = 周期完成, 停在工作就绪态, 等待用户手动开始
+            lastCompletedKind = 'break';
+            _emitTick();
+            notifyListeners();
+            completionSignal.value++;
           }
         },
       );
+
+  /// 工作完成后选择「继续工作」: 立即开始下一个番茄, 完成后强制休息
+  void continueWorking() {
+    if (lastCompletedKind != 'work') return;
+    _forcedBreakPending = true;
+    _timer?.setPhase(TimerPhase.work);
+    _applyWakelock();
+    _persistTimer();
+    _syncTimerNotification();
+    notifyListeners();
+    Future.delayed(const Duration(milliseconds: 300), start);
+  }
+
+  /// 工作完成后选择「去休息」: 按算法进入短/长休息
+  void takeBreak() {
+    if (lastCompletedKind != 'work') return;
+    // timer 内部已根据 longBreakInterval 算法切到短/长休息
+    _persistTimer();
+    _syncTimerNotification();
+    notifyListeners();
+    Future.delayed(const Duration(milliseconds: 300), start);
+  }
 
   void updateSettings(AppSettings settings) {
     final old = _settings;
@@ -135,13 +219,26 @@ class PomodoroProvider extends ChangeNotifier {
         old.shortBreakDuration != settings.shortBreakDuration ||
         old.longBreakDuration != settings.longBreakDuration;
     _timer?.applySettings(settings, resetDuration: durationChanged);
+    _applyWakelock();
     _syncTimerNotification();
     _emitTick();
     notifyListeners();
   }
 
+  /// 专注运行中且开启「屏幕常亮」时, 保持屏幕不熄灭
+  void _applyWakelock() {
+    if (_settings.keepScreenOn &&
+        _timer?.state == TimerState.running &&
+        _timer?.phase == TimerPhase.work) {
+      WakelockPlus.enable();
+    } else {
+      WakelockPlus.disable();
+    }
+  }
+
   void start() {
     _timer?.start();
+    _applyWakelock();
     _persistTimer();
     _syncTimerNotification();
     notifyListeners();
@@ -149,6 +246,7 @@ class PomodoroProvider extends ChangeNotifier {
 
   void pause() {
     _timer?.pause();
+    WakelockPlus.disable();
     _persistTimer();
     _syncTimerNotification();
     notifyListeners();
@@ -168,6 +266,8 @@ class PomodoroProvider extends ChangeNotifier {
 
   void reset() {
     _timer?.reset();
+    _forcedBreakPending = false;
+    WakelockPlus.disable();
     _persistTimer();
     notifications?.cancelTimerEnd();
     notifyListeners();
@@ -316,7 +416,9 @@ class PomodoroProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    WakelockPlus.disable();
     remainingNotifier.dispose();
+    completionSignal.dispose();
     super.dispose();
   }
 }
