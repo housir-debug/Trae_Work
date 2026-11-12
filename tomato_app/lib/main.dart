@@ -1,5 +1,7 @@
 // main.dart - 时光秘书 入口 / 主题 / 底部导航
 import 'dart:async';
+import 'dart:io';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
