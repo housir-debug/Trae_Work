@@ -60,12 +60,16 @@ class TimerService {
   /// 计时状态/剩余时间发生变化(用于持久化快照)
   final void Function()? onStateChanged;
 
+  /// 工作阶段结束时判断下一次休息是否为长休息(由 Provider 按最近 3 小时专注量计算)
+  bool Function()? shouldLongBreak;
+
   TimerService({
     required this.settings,
     this.onPhaseComplete,
     this.onPhaseChange,
     this.onTick,
     this.onStateChanged,
+    this.shouldLongBreak,
   }) {
     _remainingSeconds = _phaseTotalSeconds();
   }
@@ -194,20 +198,6 @@ class TimerService {
     onStateChanged?.call();
   }
 
-  /// 跳过当前阶段(不写入专注记录)
-  void skipPhase() {
-    _tick?.cancel();
-    _tick = null;
-    _phase = _nextPhase();
-    _remainingSeconds = _phaseTotalSeconds();
-    _state = TimerState.idle;
-    _phaseStart = null;
-    _phaseEnd = null;
-    onPhaseChange?.call(_phase);
-    onTick?.call();
-    onStateChanged?.call();
-  }
-
   void setPhase(TimerPhase phase) {
     _tick?.cancel();
     _tick = null;
@@ -285,7 +275,7 @@ class TimerService {
 
     onPhaseComplete?.call(record);
 
-    _phase = _nextPhase();
+    _phase = nextPhaseFor(wasWork);
     _remainingSeconds = _phaseTotalSeconds();
     _state = TimerState.idle;
     _phaseStart = null;
@@ -295,14 +285,11 @@ class TimerService {
     onStateChanged?.call();
   }
 
-  TimerPhase _nextPhase() {
-    if (_phase == TimerPhase.work) {
-      if (_completedWorkCount % settings.longBreakInterval == 0) {
-        return TimerPhase.longBreak;
-      }
-      return TimerPhase.shortBreak;
-    }
-    return TimerPhase.work;
+  /// 下一阶段: 工作结束进入短/长休息, 休息结束回到工作
+  TimerPhase nextPhaseFor(bool completedWork) {
+    if (!completedWork) return TimerPhase.work;
+    if (shouldLongBreak?.call() ?? false) return TimerPhase.longBreak;
+    return TimerPhase.shortBreak;
   }
 
   PomodoroType _phaseToRecordType(TimerPhase p) {

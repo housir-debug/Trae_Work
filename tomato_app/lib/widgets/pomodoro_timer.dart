@@ -20,8 +20,8 @@ class PomodoroTimerWidget extends StatelessWidget {
 
     return Column(
       children: [
-        _PhaseTabs(theme: theme, pomo: pomo),
-        const SizedBox(height: 18),
+        _TimerHeader(theme: theme, pomo: pomo),
+        const SizedBox(height: 12),
         _TimerRing(theme: theme, pomo: pomo),
         const SizedBox(height: 18),
         _Controls(theme: theme, pomo: pomo),
@@ -32,44 +32,72 @@ class PomodoroTimerWidget extends StatelessWidget {
   }
 }
 
-class _PhaseTabs extends StatelessWidget {
+/// 顶部信息条: 当前阶段 + 屏幕常亮开关
+class _TimerHeader extends StatelessWidget {
   final ThemeDef theme;
   final PomodoroProvider pomo;
 
-  const _PhaseTabs({required this.theme, required this.pomo});
+  const _TimerHeader({required this.theme, required this.pomo});
 
   @override
   Widget build(BuildContext context) {
-    final items = [
-      (TimerPhase.work, '专注'),
-      (TimerPhase.shortBreak, '短休'),
-      (TimerPhase.longBreak, '长休'),
-    ];
+    final on = pomo.keepScreenOn;
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
-      children: items.map((e) {
-        final active = pomo.phase == e.$1;
-        return GestureDetector(
-          onTap: () => pomo.setPhase(e.$1),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            margin: const EdgeInsets.symmetric(horizontal: 4),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-            decoration: BoxDecoration(
-              color: active ? theme.primary : theme.primary.withOpacity(0.08),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Text(
-              e.$2,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: active ? FontWeight.w600 : FontWeight.w400,
-                color: active ? Colors.white : theme.primary,
-              ),
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+          decoration: BoxDecoration(
+            color: theme.primary.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Text(
+            pomo.phase == TimerPhase.work ? '专注' : '休息',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: theme.primary,
             ),
           ),
-        );
-      }).toList(),
+        ),
+        const SizedBox(width: 10),
+        GestureDetector(
+          onTap: pomo.toggleKeepScreenOn,
+          behavior: HitTestBehavior.opaque,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: on
+                  ? theme.primary.withOpacity(0.14)
+                  : theme.primary.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: on
+                    ? theme.primary.withOpacity(0.35)
+                    : theme.primary.withOpacity(0.10),
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  on ? Icons.light_mode : Icons.dark_mode_outlined,
+                  size: 13,
+                  color: on ? theme.primary : theme.muted,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  '常亮',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: on ? theme.primary : theme.muted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -182,7 +210,7 @@ class _Controls extends StatelessWidget {
           iconColor: theme.primary,
           onTap: pomo.reset,
         ),
-        const SizedBox(width: 20),
+        const SizedBox(width: 28),
         GestureDetector(
           onTap: pomo.toggle,
           child: Container(
@@ -205,14 +233,6 @@ class _Controls extends StatelessWidget {
               size: 34,
             ),
           ),
-        ),
-        const SizedBox(width: 20),
-        _RoundButton(
-          icon: Icons.skip_next,
-          size: 44,
-          background: theme.primary.withOpacity(0.10),
-          iconColor: theme.primary,
-          onTap: pomo.skipPhase,
         ),
       ],
     );
@@ -333,7 +353,7 @@ class _TaskLink extends StatelessWidget {
                     style: TextStyle(fontSize: 13, color: theme.foreground),
                   ),
                   subtitle: Text(
-                    '${t.priority.label}优先级 · ${t.completedPomodoros}/${t.estimatedPomodoros} 番茄',
+                    '${t.effectivePriority.label}优先级 · ${t.completedPomodoros}/${t.estimatedPomodoros} 番茄${t.isRecurring ? ' · ${t.repeatLabel}' : ''}',
                     style: TextStyle(fontSize: 10, color: theme.muted),
                   ),
                   onTap: () {

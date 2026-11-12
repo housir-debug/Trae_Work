@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/task.dart';
-import '../providers/pomodoro_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/task_provider.dart';
 import '../widgets/schedule_editor.dart';
@@ -28,9 +27,11 @@ class _TasksScreenState extends State<TasksScreen> {
   @override
   void initState() {
     super.initState();
-    // 打开待办页时检查是否有休眠周期任务到期回归
+    // 打开待办页时检查是否有休眠周期任务到期回归 / 固定待办到点回归
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) context.read<TaskProvider>().refreshRecurring();
+      if (!mounted) return;
+      context.read<TaskProvider>().refreshRecurring();
+      context.read<TaskProvider>().refreshFixed();
     });
   }
 
@@ -50,7 +51,6 @@ class _TasksScreenState extends State<TasksScreen> {
     }
 
     final overdue = tasks.where((t) => t.isOverdue).toList();
-    final normal = tasks.where((t) => !t.isOverdue).toList();
     final recurringCount = provider.recurringTasks.length;
 
     return SingleChildScrollView(
@@ -159,23 +159,19 @@ class _TasksScreenState extends State<TasksScreen> {
               ),
             )
           else ...[
-            if (overdue.isNotEmpty) _group('已逾期', overdue),
-            if (normal.isNotEmpty) ...normal.map(_tile),
+            if (overdue.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(22, 2, 22, 6),
+                child: Text(
+                  '${overdue.length} 项已逾期 · 排序: 优先级 > 预期时间 > 创建时间',
+                  style: TextStyle(fontSize: 10, color: theme.muted),
+                ),
+              ),
+            ...tasks.map(_tile),
           ],
           const SizedBox(height: 110),
         ],
       ),
-    );
-  }
-
-  Widget _group(String title, List<Task> list, {Widget? trailing}) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SectionHeader(
-            title: title, subtitle: '${list.length} 项', trailing: trailing),
-        ...list.map(_tile),
-      ],
     );
   }
 
@@ -186,7 +182,6 @@ class _TasksScreenState extends State<TasksScreen> {
       onToggle: () => provider.toggleComplete(t.id),
       onEdit: () => showTaskEditor(context, task: t),
       onDelete: () => _delete(t),
-      onFocus: () => context.read<PomodoroProvider>().assignTask(t),
       onPin: () => provider.togglePin(t.id),
       onDuplicate: () async {
         final copy = await provider.duplicateTask(t.id);

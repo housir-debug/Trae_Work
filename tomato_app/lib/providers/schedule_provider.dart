@@ -169,38 +169,7 @@ class ScheduleProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 把某天的全部日程复制到另一天(同名同起点的不重复复制)
-  Future<int> copyDay(DateTime from, DateTime to) async {
-    final fromKey = dateKey(from);
-    final toKey = dateKey(to);
-    if (fromKey == toKey) return 0;
-    final targets = _events.where((e) => e.dateKey == toKey).toList();
-    var count = 0;
-    for (final e in _events.where((e) => e.dateKey == fromKey)) {
-      final exists = targets.any((t) =>
-          t.title == e.title && t.startMinute == e.startMinute);
-      if (exists) continue;
-      final copy = ScheduleEvent(
-        dateKey: toKey,
-        title: e.title,
-        startMinute: e.startMinute,
-        endMinute: e.endMinute,
-        category: e.category,
-        note: e.note,
-        reminderMinutes: e.reminderMinutes,
-        taskId: e.taskId,
-      );
-      _events.add(copy);
-      targets.add(copy);
-      count++;
-    }
-    if (count > 0) {
-      await _persist();
-      notifyListeners();
-    }
-    return count;
-  }
-
+  /// 勾选完成 / 取消完成
   Future<void> toggleDone(String id) async {
     final idx = _events.indexWhere((e) => e.id == id);
     if (idx < 0) return;
@@ -211,13 +180,19 @@ class ScheduleProvider extends ChangeNotifier {
     notifyListeners();
 
     // 完成日程 = 写入时间轴; 有联动待办时由待办侧统一写, 避免重复记录
-    if (done && e.taskId == null) {
-      completions?.add(CompletionRecord(
-        title: e.title,
-        kind: CompletionKind.schedule,
-        timestamp: DateTime.now(),
-        note: '${e.dateKey} ${timeText(e.startMinute)}-${timeText(e.endMinute)}',
-      ));
+    if (e.taskId == null) {
+      if (done) {
+        await completions?.add(CompletionRecord(
+          title: e.title,
+          kind: CompletionKind.schedule,
+          timestamp: DateTime.now(),
+          note:
+              '${e.dateKey} ${timeText(e.startMinute)}-${timeText(e.endMinute)}',
+          refId: e.id,
+        ));
+      } else {
+        await completions?.removeByRef(e.id);
+      }
     }
     // 同步联动待办
     if (e.taskId != null) {

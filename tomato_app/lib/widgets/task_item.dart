@@ -1,4 +1,6 @@
 // widgets/task_item.dart - 待办列表项
+// v3.1: 优先级自动递进用颜色 + 小箭头表达; 子任务可下拉展开、上拉收起;
+//       徽章顺序 优先级 > 番茄钟 > 周期/固定日期 > 子任务; 移除无用的播放按钮
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -8,12 +10,11 @@ import '../providers/settings_provider.dart';
 import '../providers/task_provider.dart';
 import 'ui.dart';
 
-class TaskItemWidget extends StatelessWidget {
+class TaskItemWidget extends StatefulWidget {
   final Task task;
   final VoidCallback onToggle;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
-  final VoidCallback? onFocus;
   final VoidCallback? onSchedule;
   final VoidCallback? onPin;
   final VoidCallback? onDuplicate;
@@ -25,12 +26,20 @@ class TaskItemWidget extends StatelessWidget {
     required this.onToggle,
     this.onEdit,
     this.onDelete,
-    this.onFocus,
     this.onSchedule,
     this.onPin,
     this.onDuplicate,
     this.showDate = true,
   });
+
+  @override
+  State<TaskItemWidget> createState() => _TaskItemWidgetState();
+}
+
+class _TaskItemWidgetState extends State<TaskItemWidget> {
+  bool _expanded = false;
+
+  Task get task => widget.task;
 
   @override
   Widget build(BuildContext context) {
@@ -41,11 +50,11 @@ class TaskItemWidget extends StatelessWidget {
     return AppCard(
       margin: const EdgeInsets.fromLTRB(20, 5, 20, 5),
       padding: const EdgeInsets.fromLTRB(12, 11, 6, 11),
-      onTap: onEdit,
+      onTap: widget.onEdit,
       child: Row(
         children: [
           GestureDetector(
-            onTap: onToggle,
+            onTap: widget.onToggle,
             behavior: HitTestBehavior.opaque,
             child: Padding(
               padding: const EdgeInsets.all(4),
@@ -80,12 +89,9 @@ class TaskItemWidget extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
-                    color: task.isCompleted
-                        ? theme.muted
-                        : theme.foreground,
-                    decoration: task.isCompleted
-                        ? TextDecoration.lineThrough
-                        : null,
+                    color: task.isCompleted ? theme.muted : theme.foreground,
+                    decoration:
+                        task.isCompleted ? TextDecoration.lineThrough : null,
                   ),
                 ),
                 const SizedBox(height: 5),
@@ -100,78 +106,96 @@ class TaskItemWidget extends StatelessWidget {
                         color: theme.primary,
                         icon: Icons.push_pin_outlined,
                       ),
-                    TinyBadge(
-                      text: task.isRecurring &&
-                              effectivePriority != task.priority
-                          ? '${effectivePriority.label}(自动)'
-                          : effectivePriority.label,
-                      color: priorityColor,
-                    ),
+                    // 优先级: 自动递进仅用颜色 + 小箭头, 减少文字噪音
+                    if (task.isAutoPriority)
+                      Tooltip(
+                        message: '${effectivePriority.label}优先级(自动)',
+                        child: TinyBadge(
+                          text: '',
+                          color: priorityColor,
+                          icon: Icons.north_east,
+                        ),
+                      )
+                    else
+                      TinyBadge(
+                        text: effectivePriority.label,
+                        color: priorityColor,
+                      ),
                     if (task.isOverdue)
                       const TinyBadge(
                         text: '已逾期',
                         color: Color(0xFFFF5252),
                         icon: Icons.warning_amber_rounded,
                       ),
-                    if (showDate && task.dueDate != null)
-                      TinyBadge(
-                        text: '日程 ${friendlyDate(task.dueDate!)}',
-                        color: theme.primary,
-                        icon: Icons.event_outlined,
-                      ),
-                    if (task.tags.isNotEmpty)
-                      for (final tag in task.tags.take(3))
-                        TinyBadge(text: '#$tag', color: theme.accent),
-                    if (task.hasSubtasks)
-                      TinyBadge(
-                        text: '子任务 ${task.subtaskDone}/${task.subtasks.length}',
-                        color: const Color(0xFF7E57C2),
-                        icon: Icons.checklist_rtl,
-                      ),
+                    TinyBadge(
+                      text: '${task.completedPomodoros}/${task.estimatedPomodoros} 番茄',
+                      color: const Color(0xFFF06292),
+                      icon: Icons.timer_outlined,
+                    ),
                     if (task.isRecurring)
                       TinyBadge(
                         text: task.isDormant
                             ? '${task.repeatLabel} · 休眠中'
                             : task.repeatLabel,
                         color: theme.primary,
-                        icon: Icons.repeat,
+                        icon: task.isFixed
+                            ? Icons.event_repeat
+                            : Icons.repeat,
                       ),
-                    TinyBadge(
-                      text: '${task.completedPomodoros}/${task.estimatedPomodoros} 番茄',
-                      color: const Color(0xFFF06292),
-                      icon: Icons.timer_outlined,
-                    ),
+                    if (task.hasSubtasks)
+                      GestureDetector(
+                        onTap: () => setState(() => _expanded = !_expanded),
+                        child: TinyBadge(
+                          text:
+                              '子任务 ${task.subtaskDone}/${task.subtasks.length}',
+                          color: const Color(0xFF7E57C2),
+                          icon: _expanded
+                              ? Icons.keyboard_arrow_up
+                              : Icons.keyboard_arrow_down,
+                        ),
+                      ),
+                    if (widget.showDate && task.dueDate != null)
+                      TinyBadge(
+                        text: '日程 ${friendlyDate(task.dueDate!)}',
+                        color: theme.primary,
+                        icon: Icons.event_outlined,
+                      ),
+                    if (task.tags.isNotEmpty)
+                      for (final tag in task.tags.take(2))
+                        TinyBadge(text: '#$tag', color: theme.accent),
                   ],
                 ),
-                if (task.hasSubtasks) ...[
-                  const SizedBox(height: 5),
-                  for (final s in task.subtasks.take(4))
+                // 子任务: 默认收起, 下拉展开后可逐项独立完成
+                if (task.hasSubtasks && _expanded) ...[
+                  const SizedBox(height: 6),
+                  for (final s in task.subtasks)
                     GestureDetector(
                       behavior: HitTestBehavior.opaque,
                       onTap: () => context
                           .read<TaskProvider>()
                           .toggleSubtask(task.id, s.id),
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        padding: const EdgeInsets.symmetric(vertical: 3),
                         child: Row(
                           children: [
                             Icon(
                               s.isDone
-                                  ? Icons.check_circle_outline
-                                  : Icons.circle_outlined,
-                              size: 13,
+                                  ? Icons.check_circle
+                                  : Icons.radio_button_unchecked,
+                              size: 14,
                               color: s.isDone ? theme.primary : theme.muted,
                             ),
-                            const SizedBox(width: 5),
+                            const SizedBox(width: 6),
                             Expanded(
                               child: Text(
                                 s.title,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
-                                  fontSize: 11,
-                                  color:
-                                      s.isDone ? theme.muted : theme.foreground,
+                                  fontSize: 12,
+                                  color: s.isDone
+                                      ? theme.muted
+                                      : theme.foreground,
                                   decoration: s.isDone
                                       ? TextDecoration.lineThrough
                                       : null,
@@ -182,16 +206,8 @@ class TaskItemWidget extends StatelessWidget {
                         ),
                       ),
                     ),
-                  if (task.subtasks.length > 4)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 2),
-                      child: Text(
-                        '还有 ${task.subtasks.length - 4} 项…',
-                        style: TextStyle(fontSize: 10, color: theme.muted),
-                      ),
-                    ),
                 ],
-                if (task.notes.isNotEmpty) ...[
+                if (task.notes.isNotEmpty && !task.hasSubtasks) ...[
                   const SizedBox(height: 4),
                   Text(
                     task.notes,
@@ -203,59 +219,49 @@ class TaskItemWidget extends StatelessWidget {
               ],
             ),
           ),
-          if (onFocus != null && !task.isCompleted)
-            IconButton(
-              tooltip: '开始专注',
-              icon: Icon(Icons.play_circle_outline,
-                  size: 19,
-                  color: theme.primary.withOpacity(0.85)),
-              onPressed: onFocus,
-              visualDensity: VisualDensity.compact,
-            ),
-          if (onEdit != null || onDelete != null)
+          if (widget.onEdit != null || widget.onDelete != null)
             PopupMenuButton<String>(
               icon: Icon(Icons.more_vert, size: 18, color: theme.muted),
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(minWidth: 120),
               color: theme.cardBackground,
               onSelected: (v) {
-                if (v == 'edit') onEdit?.call();
-                if (v == 'schedule') onSchedule?.call();
-                if (v == 'pin') onPin?.call();
-                if (v == 'duplicate') onDuplicate?.call();
-                if (v == 'delete') onDelete?.call();
+                if (v == 'edit') widget.onEdit?.call();
+                if (v == 'schedule') widget.onSchedule?.call();
+                if (v == 'pin') widget.onPin?.call();
+                if (v == 'duplicate') widget.onDuplicate?.call();
+                if (v == 'delete') widget.onDelete?.call();
               },
               itemBuilder: (_) => [
-                if (onEdit != null)
+                if (widget.onEdit != null)
                   PopupMenuItem(
                     value: 'edit',
                     child: Text('编辑',
                         style: TextStyle(fontSize: 13, color: theme.foreground)),
                   ),
-                if (onPin != null && !task.isCompleted)
+                if (widget.onPin != null && !task.isCompleted)
                   PopupMenuItem(
                     value: 'pin',
                     child: Text(task.isPinned ? '取消置顶' : '置顶',
                         style: TextStyle(fontSize: 13, color: theme.foreground)),
                   ),
-                if (onDuplicate != null)
+                if (widget.onDuplicate != null)
                   PopupMenuItem(
                     value: 'duplicate',
                     child: Text('复制一份',
                         style: TextStyle(fontSize: 13, color: theme.foreground)),
                   ),
-                if (onSchedule != null && !task.isCompleted)
+                if (widget.onSchedule != null && !task.isCompleted)
                   PopupMenuItem(
                     value: 'schedule',
                     child: Text('安排到日程',
                         style: TextStyle(fontSize: 13, color: theme.foreground)),
                   ),
-                if (onDelete != null)
+                if (widget.onDelete != null)
                   PopupMenuItem(
                     value: 'delete',
                     child: Text('删除',
-                        style: TextStyle(
-                            fontSize: 13, color: theme.foreground)),
+                        style: TextStyle(fontSize: 13, color: theme.foreground)),
                   ),
               ],
             ),

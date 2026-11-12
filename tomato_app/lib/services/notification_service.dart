@@ -17,8 +17,10 @@ class NotificationService {
   static const String channelReminders = 'reminders';
   static const String channelPomodoro = 'pomodoro';
   static const String channelDaily = 'daily';
+  static const String channelOngoing = 'pomodoro_ongoing';
 
   static const int _timerId = 300001;
+  static const int _ongoingId = 300002;
   static const int _dailyPlanId = 200001;
   static const int _dailyReviewId = 200002;
   static const int _eventIdBase = 100000;
@@ -31,6 +33,8 @@ class NotificationService {
   bool _ready = false;
 
   String? _pendingEventDateKey;
+  bool _pendingPomodoro = false;
+  bool _pendingReview = false;
 
   /// 通知被点击时回调(由 RootGate 注册, 负责上锁状态下的安全判断)
   void Function()? onEventTap;
@@ -43,18 +47,40 @@ class NotificationService {
     _pendingEventDateKey = null;
   }
 
+  /// 番茄结束通知点击后待处理的「继续 / 休息」选择
+  bool get hasPendingPomodoro => _pendingPomodoro;
+  void clearPendingPomodoro() => _pendingPomodoro = false;
+
+  /// 每日复盘提醒点击后待打开的复盘编辑
+  bool get hasPendingReview => _pendingReview;
+  void clearPendingReview() => _pendingReview = false;
+
   /// 直接设置待打开的日期(不经过 onEventTap, 用于冷启动首帧场景)
   void setPendingEventDateByLaunch(String key) {
     _pendingEventDateKey = key;
   }
 
-  void _handleResponse(NotificationResponse response) {
-    final payload = response.payload;
-    if (payload == null || !payload.startsWith('event:')) return;
+  void _handlePayload(String? payload) {
+    if (payload == null) return;
+    if (payload == 'pomodoro') {
+      _pendingPomodoro = true;
+      onEventTap?.call();
+      return;
+    }
+    if (payload == 'review') {
+      _pendingReview = true;
+      onEventTap?.call();
+      return;
+    }
+    if (!payload.startsWith('event:')) return;
     final parts = payload.split(':');
     _pendingEventDateKey =
         parts.length >= 3 ? parts[2] : dateKey(DateTime.now());
     onEventTap?.call();
+  }
+
+  void _handleResponse(NotificationResponse response) {
+    _handlePayload(response.payload);
   }
 
   Future<void> init() async {
@@ -80,6 +106,10 @@ class NotificationService {
           final parts = payload.split(':');
           setPendingEventDateByLaunch(
               parts.length >= 3 ? parts[2] : dateKey(DateTime.now()));
+        } else if (payload == 'pomodoro') {
+          _pendingPomodoro = true;
+        } else if (payload == 'review') {
+          _pendingReview = true;
         }
       }
       final androidImpl = _plugin.resolvePlatformSpecificImplementation<
@@ -101,6 +131,14 @@ class NotificationService {
         '每日提醒',
         description: '每日计划与复盘提醒',
         importance: Importance.defaultImportance,
+      ));
+      await androidImpl?.createNotificationChannel(const AndroidNotificationChannel(
+        channelOngoing,
+        '专注进行中',
+        description: '番茄周期运行时在通知栏常驻',
+        importance: Importance.low,
+        playSound: false,
+        showBadge: false,
       ));
       await androidImpl?.requestNotificationsPermission();
       _ready = true;
@@ -259,6 +297,7 @@ class NotificationService {
         channelId: channelDaily,
         repeatDaily: true,
         playSound: false,
+        payload: 'review',
       );
     }
   }
@@ -282,6 +321,28 @@ class NotificationService {
   }
 
   Future<void> cancelTimerEnd() => cancel(_timerId);
+
+  /// 专注周期运行时, 离开专注页后在通知栏常驻
+  Future<void> showOngoing({
+    required String title,
+    required String body,
+    bool playSound = false,
+  }) async {
+    if (!_ready) return;
+    try {
+      await _plugin.show(
+        _ongoingId,
+        title,
+        body,
+        _details(channelOngoing, playSound: playSound),
+        payload: 'pomodoro',
+      );
+    } catch (e) {
+      debugPrint('常驻通知失败: $e');
+    }
+  }
+
+  Future<void> cancelOngoing() => cancel(_ongoingId);
 
   Future<void> cancelDailyReminders() async {
     await cancel(_dailyPlanId);

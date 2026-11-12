@@ -74,6 +74,14 @@ int fnvHash(String input) {
 int daysInMonth(int year, int month) =>
     DateTime(year, month + 1, 0).day;
 
+/// ISO 周序号(用于按月统计的横坐标, 如「54周」)
+int isoWeekNumber(DateTime date) {
+  final day = startOfDay(date);
+  final thursday = day.add(Duration(days: 4 - day.weekday));
+  final jan1 = DateTime(thursday.year, 1, 1);
+  return (thursday.difference(jan1).inDays / 7).floor() + 1;
+}
+
 String greetingByHour() {
   final h = DateTime.now().hour;
   if (h < 6) return '夜深了';

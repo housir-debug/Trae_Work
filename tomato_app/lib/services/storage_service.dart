@@ -31,18 +31,6 @@ class StorageService {
   static const kCompletionLog = 'completion_log';
   static const kHabitsMigrated = 'habits_migrated_v3';
 
-  static const List<String> allKeys = [
-    kSettings,
-    kTasks,
-    kRecords,
-    kCompletedWorkCount,
-    kHabits,
-    kGoals,
-    kEvents,
-    kJournals,
-    kCompletionLog,
-  ];
-
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
   }
@@ -177,48 +165,6 @@ class StorageService {
       await _prefs.remove(kTimerState);
     } else {
       await _prefs.setString(kTimerState, raw);
-    }
-  }
-
-  // ------- 备份 -------
-  String exportBackup() {
-    final map = <String, dynamic>{
-      'app': '时光秘书',
-      'version': 3,
-      'exportedAt': DateTime.now().toIso8601String(),
-    };
-    for (final k in allKeys) {
-      map[k] = _prefs.getString(k);
-    }
-    map[kCompletedWorkCount] = _prefs.getInt(kCompletedWorkCount) ?? 0;
-    return const JsonEncoder.withIndent('  ').convert(map);
-  }
-
-  /// 返回恢复的数据条数, 失败抛异常
-  Future<int> importBackup(String raw) async {
-    final map = jsonDecode(raw) as Map<String, dynamic>;
-    if (map['version'] == null && map['app_settings'] == null) {
-      throw const FormatException('不是有效的备份文件');
-    }
-    var count = 0;
-    for (final k in allKeys) {
-      final v = map[k];
-      if (v is String) {
-        await _prefs.setString(k, v);
-        count++;
-      }
-    }
-    final c = map[kCompletedWorkCount];
-    if (c is int) {
-      await _prefs.setInt(kCompletedWorkCount, c);
-      count++;
-    }
-    return count;
-  }
-
-  Future<void> clearAll() async {
-    for (final k in allKeys) {
-      await _prefs.remove(k);
     }
   }
 }

@@ -8,6 +8,7 @@ import '../providers/completion_provider.dart';
 import '../providers/settings_provider.dart';
 import '../theme/backgrounds.dart';
 import '../widgets/ui.dart';
+import 'stats_screen.dart';
 
 class TimelineScreen extends StatefulWidget {
   const TimelineScreen({super.key});
@@ -38,7 +39,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('时间轴',
+                  Text('记录',
                       style: TextStyle(
                           fontSize: 22,
                           fontWeight: FontWeight.w700,
@@ -49,13 +50,20 @@ class _TimelineScreenState extends State<TimelineScreen> {
                 ],
               ),
               const Spacer(),
-              TextButton(
+              IconButton(
+                tooltip: '数据统计',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const StatsScreen()),
+                ),
+                icon: Icon(Icons.insights, size: 20, color: theme.primary),
+              ),
+              IconButton(
+                tooltip: '回到今天',
                 onPressed: () => setState(() {
                   _selected = startOfDay(DateTime.now());
                   _month = DateTime(_selected.year, _selected.month);
                 }),
-                child: Text('回到今天',
-                    style: TextStyle(fontSize: 12, color: theme.primary)),
+                icon: Icon(Icons.today, size: 19, color: theme.muted),
               ),
             ],
           ),
@@ -75,8 +83,8 @@ class _TimelineScreenState extends State<TimelineScreen> {
     final today = startOfDay(DateTime.now());
 
     return AppCard(
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+      margin: const EdgeInsets.fromLTRB(16, 4, 16, 6),
+      padding: const EdgeInsets.fromLTRB(10, 4, 10, 6),
       child: Column(
         children: [
           Row(
@@ -112,27 +120,27 @@ class _TimelineScreenState extends State<TimelineScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
           Row(
             children: ['一', '二', '三', '四', '五', '六', '日']
                 .map((d) => Expanded(
                       child: Center(
                         child: Text(d,
                             style: TextStyle(
-                                fontSize: 10, color: theme.muted)),
+                                fontSize: 9, color: theme.muted)),
                       ),
                     ))
                 .toList(),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
           GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 7,
-              mainAxisSpacing: 2,
-              crossAxisSpacing: 2,
-              childAspectRatio: 1.15,
+              mainAxisSpacing: 1,
+              crossAxisSpacing: 1,
+              childAspectRatio: 1.65,
             ),
             itemCount: leadingBlanks + daysInMonth,
             itemBuilder: (_, i) {
@@ -161,7 +169,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
                       Text(
                         '${day.day}',
                         style: TextStyle(
-                          fontSize: 12,
+                          fontSize: 11,
                           fontWeight: isSelected || isToday
                               ? FontWeight.w700
                               : FontWeight.w400,
@@ -172,10 +180,10 @@ class _TimelineScreenState extends State<TimelineScreen> {
                                   : theme.foreground,
                         ),
                       ),
-                      const SizedBox(height: 2),
+                      const SizedBox(height: 1),
                       Container(
-                        width: 4,
-                        height: 4,
+                        width: 3,
+                        height: 3,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           color: hasRecords

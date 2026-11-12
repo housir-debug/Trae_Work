@@ -22,12 +22,16 @@ class CompletionRecord {
   /// 附加说明(如番茄时长、日程时间段)
   String note;
 
+  /// 来源对象 id(待办 / 日程), 取消完成时用于撤销对应记录
+  final String? refId;
+
   CompletionRecord({
     String? id,
     required this.title,
     required this.kind,
     required this.timestamp,
     this.note = '',
+    this.refId,
   }) : id = id ?? const Uuid().v4();
 
   Map<String, dynamic> toJson() => {
@@ -36,6 +40,7 @@ class CompletionRecord {
         'kind': kind.index,
         'timestamp': timestamp.toIso8601String(),
         'note': note,
+        'refId': refId,
       };
 
   factory CompletionRecord.fromJson(Map<String, dynamic> json) =>
@@ -46,5 +51,6 @@ class CompletionRecord {
             .values[(json['kind'] as int? ?? 0).clamp(0, 3).toInt()],
         timestamp: DateTime.parse(json['timestamp'] as String),
         note: json['note'] as String? ?? '',
+        refId: json['refId'] as String?,
       );
 }

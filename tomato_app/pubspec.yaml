@@ -1,13 +1,15 @@
 name: tomato_todo
 description: 时光秘书 - 专属个人的时间、待办、目标管理助手
 publish_to: 'none'
-version: 3.0.0+5
+version: 3.1.0+6
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
 
 dependencies:
   flutter:
+    sdk: flutter
+  flutter_localizations:
     sdk: flutter
   provider: ^6.1.1
   shared_preferences: ^2.2.2
@@ -19,9 +21,6 @@ dependencies:
   flutter_local_notifications: ^17.2.4
   timezone: ^0.9.4
   flutter_timezone: ^3.0.1
-  share_plus: ^10.1.4
-  file_selector: ^1.0.3
-  path_provider: ^2.1.5
   wakelock_plus: 1.2.8
 
 dev_dependencies:

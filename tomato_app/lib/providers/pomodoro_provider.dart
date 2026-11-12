@@ -42,6 +42,15 @@ class PomodoroProvider extends ChangeNotifier {
   /// 选择「继续工作」后, 下一个工作完成时强制进入休息
   bool _forcedBreakPending = false;
 
+  /// 卡片上的屏幕常亮开关(仅本次会话生效, 不进设置)
+  bool _keepScreenOn = false;
+
+  /// 专注页当前是否可见(决定常亮与常驻通知)
+  bool _focusPageVisible = true;
+
+  bool get keepScreenOn => _keepScreenOn;
+  bool get focusPageVisible => _focusPageVisible;
+
   /// 完成一个专注阶段时回调(用于给任务累加番茄)
   void Function(PomodoroRecord record, String? taskId)? onWorkCompleted;
 
@@ -109,6 +118,7 @@ class PomodoroProvider extends ChangeNotifier {
 
   TimerService _buildTimer(AppSettings settings) => TimerService(
         settings: settings,
+        shouldLongBreak: _shouldLongBreak,
         onTick: _emitTick,
         onPhaseChange: (_) => notifyListeners(),
         onStateChanged: () {
@@ -158,11 +168,9 @@ class PomodoroProvider extends ChangeNotifier {
             });
           }
           notifications?.cancelTimerEnd();
+          notifications?.cancelOngoing();
 
-          // 专注期间保持屏幕常亮, 阶段结束后释放
-          if (!isRunning) {
-            WakelockPlus.disable();
-          }
+          _applyWakelock();
 
           if (wasWork) {
             lastCompletedKind = 'work';
@@ -190,9 +198,17 @@ class PomodoroProvider extends ChangeNotifier {
         },
       );
 
+  /// 长休息判定: 最近 3 小时内累计专注 >= 150 分钟
+  bool _shouldLongBreak() {
+    final since = DateTime.now().subtract(const Duration(hours: 3));
+    final minutes = _records
+        .where((r) => r.type == PomodoroType.work && r.completedAt.isAfter(since))
+        .fold(0, (sum, r) => sum + r.durationMinutes);
+    return minutes >= 150;
+  }
+
   /// 工作完成后选择「继续工作」: 立即开始下一个番茄, 完成后强制休息
   void continueWorking() {
-    if (lastCompletedKind != 'work') return;
     _forcedBreakPending = true;
     _timer?.setPhase(TimerPhase.work);
     _applyWakelock();
@@ -204,8 +220,7 @@ class PomodoroProvider extends ChangeNotifier {
 
   /// 工作完成后选择「去休息」: 按算法进入短/长休息
   void takeBreak() {
-    if (lastCompletedKind != 'work') return;
-    // timer 内部已根据 longBreakInterval 算法切到短/长休息
+    // timer 内部已按最近 3 小时专注量切到短/长休息
     _persistTimer();
     _syncTimerNotification();
     notifyListeners();
@@ -225,11 +240,47 @@ class PomodoroProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 专注运行中且开启「屏幕常亮」时, 保持屏幕不熄灭
+  void toggleKeepScreenOn() {
+    _keepScreenOn = !_keepScreenOn;
+    _applyWakelock();
+    notifyListeners();
+  }
+
+  /// 专注页是否停留在前台, 由根页面切换 Tab / 生命周期回调
+  void setFocusPageVisible(bool visible) {
+    if (_focusPageVisible == visible) return;
+    _focusPageVisible = visible;
+    _applyWakelock();
+    _syncOngoingNotification();
+  }
+
+  /// 通知栏常驻: 番茄周期运行中且不在专注页时显示
+  void _syncOngoingNotification() {
+    final n = notifications;
+    if (n == null) return;
+    if (isRunning && !_focusPageVisible) {
+      final isWork = phase == TimerPhase.work;
+      n.showOngoing(
+        title: isWork ? '专注进行中' : '休息中',
+        body: isWork
+            ? '${formatSeconds(remainingSeconds)} · 点击回到专注'
+            : '${formatSeconds(remainingSeconds)} · 点击回到休息',
+      );
+    } else {
+      n.cancelOngoing();
+    }
+  }
+
+  /// 通知点击后, 若正处于「已完成待选择」状态则弹出选择
+  void showCompletionChoiceIfPending() {
+    if (!isRunning && lastCompletedKind == 'work') {
+      completionSignal.value++;
+    }
+  }
+
+  /// 常亮生效条件: 已开启常亮 + 番茄运行中 + 屏幕停留在专注页
   void _applyWakelock() {
-    if (_settings.keepScreenOn &&
-        _timer?.state == TimerState.running &&
-        _timer?.phase == TimerPhase.work) {
+    if (_keepScreenOn && isRunning && _focusPageVisible) {
       WakelockPlus.enable();
     } else {
       WakelockPlus.disable();
@@ -241,14 +292,16 @@ class PomodoroProvider extends ChangeNotifier {
     _applyWakelock();
     _persistTimer();
     _syncTimerNotification();
+    _syncOngoingNotification();
     notifyListeners();
   }
 
   void pause() {
     _timer?.pause();
-    WakelockPlus.disable();
+    _applyWakelock();
     _persistTimer();
     _syncTimerNotification();
+    _syncOngoingNotification();
     notifyListeners();
   }
 
@@ -267,31 +320,19 @@ class PomodoroProvider extends ChangeNotifier {
   void reset() {
     _timer?.reset();
     _forcedBreakPending = false;
-    WakelockPlus.disable();
+    _applyWakelock();
     _persistTimer();
     notifications?.cancelTimerEnd();
+    notifications?.cancelOngoing();
     notifyListeners();
   }
 
-  void skipPhase() {
-    _timer?.skipPhase();
-    _persistTimer();
-    _syncTimerNotification();
-    notifyListeners();
-  }
-
-  void setPhase(TimerPhase p) {
-    _timer?.setPhase(p);
-    _persistTimer();
-    _syncTimerNotification();
-    notifyListeners();
-  }
-
-  /// 回到前台时按真实时间校准
   void syncFromClock() {
     _timer?.syncFromClock();
     _persistTimer();
     _syncTimerNotification();
+    _syncOngoingNotification();
+    _applyWakelock();
     notifyListeners();
   }
 
@@ -324,7 +365,7 @@ class PomodoroProvider extends ChangeNotifier {
       notifications!.scheduleTimerEnd(
         end: t.phaseEnd!,
         title: isWork ? '专注完成' : '休息结束',
-        body: isWork ? '辛苦了, 起来走走, 让眼睛休息一下' : '休息结束, 继续专注吧',
+        body: isWork ? '点击回到应用, 选择继续工作或休息' : '休息结束, 继续专注吧',
       );
     } else {
       notifications!.cancelTimerEnd();
@@ -377,41 +418,6 @@ class PomodoroProvider extends ChangeNotifier {
       cursor = cursor.subtract(const Duration(days: 1));
     }
     return n;
-  }
-
-  void clearAll() {
-    _records = [];
-    _completedWorkCount = 0;
-    _storage.saveRecords(_records);
-    _storage.saveCompletedWorkCount(0);
-    _timer?.reset();
-    _storage.saveTimerSnapshot(null);
-    notifications?.cancelTimerEnd();
-    notifyListeners();
-  }
-
-  /// 导入备份后重新读取本地数据
-  void reloadFromStorage() {
-    _records = _storage.loadRecords();
-    _completedWorkCount = _storage.loadCompletedWorkCount();
-    _timer?.reset();
-    _storage.saveTimerSnapshot(null);
-    notifications?.cancelTimerEnd();
-    _emitTick();
-    notifyListeners();
-  }
-
-  /// 清理超过 [days] 天的番茄记录, 返回清理条数(默认 365 天)
-  Future<int> pruneRecordsOlderThan({int days = 365}) async {
-    final cutoff = DateTime.now().subtract(Duration(days: days));
-    final before = _records.length;
-    _records.removeWhere((r) => r.completedAt.isBefore(cutoff));
-    final removed = before - _records.length;
-    if (removed > 0) {
-      await _storage.saveRecords(_records);
-      notifyListeners();
-    }
-    return removed;
   }
 
   @override

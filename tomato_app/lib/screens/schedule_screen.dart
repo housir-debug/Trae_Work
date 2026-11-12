@@ -72,17 +72,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     });
   }
 
-  Future<void> _copyToTomorrow() async {
-    final tomorrow = _selected.add(const Duration(days: 1));
-    final count =
-        await context.read<ScheduleProvider>().copyDay(_selected, tomorrow);
-    if (!mounted) return;
-    showToast(
-      context,
-      count == 0 ? '当天没有可复制的日程' : '已复制 $count 项到 ${shortDate(tomorrow)}',
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = context.watch<SettingsProvider>().currentTheme;
@@ -102,12 +91,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 fontWeight: FontWeight.w700,
                 color: theme.foreground)),
         actions: [
-          IconButton(
-            tooltip: '复制到明天',
-            onPressed: _copyToTomorrow,
-            icon: Icon(Icons.copy_all_outlined,
-                size: 19, color: theme.primary),
-          ),
           TextButton(
             onPressed: () => _selectDate(DateTime.now()),
             child: Text('今天',

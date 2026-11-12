@@ -1,4 +1,8 @@
-// widgets/task_input.dart - 新建/编辑待办 与 快速录入
+// widgets/task_input.dart - 新建 / 编辑待办
+// v3.1: 三类待办(单次 / 重复 / 固定)
+//   单次: 优先级(默认高) + 预期时间(默认当天 0 点)
+//   重复: 仅设置天数周期(自动优先级)
+//   固定: 每天 / 每周某天 / 每月某日(自动优先级)
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -39,10 +43,15 @@ class _TaskEditorState extends State<_TaskEditor> {
   late final TextEditingController _notes;
   late final TextEditingController _tags;
   late final TextEditingController _subtaskInput;
+  late TaskType _type;
   late TaskPriority _priority;
   late int _estimate;
   late List<Subtask> _subtasks;
-  late int _repeatDays; // 0 = 不重复
+  late int _repeatDays;
+  late FixedRule _fixedRule;
+  late int _fixedWeekday;
+  late int _fixedDay;
+  late DateTime _expectedAt;
 
   @override
   void initState() {
@@ -52,10 +61,15 @@ class _TaskEditorState extends State<_TaskEditor> {
     _notes = TextEditingController(text: t?.notes ?? '');
     _tags = TextEditingController(text: t?.tags.join(',') ?? '');
     _subtaskInput = TextEditingController();
-    _priority = t?.priority ?? TaskPriority.medium;
+    _type = t?.type ?? TaskType.single;
+    _priority = t?.priority ?? TaskPriority.high;
     _estimate = t?.estimatedPomodoros ?? 2;
     _subtasks = List<Subtask>.from(t?.subtasks ?? []);
-    _repeatDays = t?.repeatIntervalDays ?? 0;
+    _repeatDays = t != null && t.repeatIntervalDays > 0 ? t.repeatIntervalDays : 1;
+    _fixedRule = t?.fixedRule ?? FixedRule.daily;
+    _fixedWeekday = t?.fixedWeekday ?? DateTime.now().weekday;
+    _fixedDay = t?.fixedDayOfMonth ?? DateTime.now().day;
+    _expectedAt = t?.expectedAt ?? startOfDay(DateTime.now());
   }
 
   @override
@@ -112,26 +126,120 @@ class _TaskEditorState extends State<_TaskEditor> {
           decoration: appInput(context: context, hint: '备注 / 具体步骤(可选)'),
         ),
         const SizedBox(height: 14),
-        Text('优先级', style: TextStyle(fontSize: 12, color: theme.muted)),
+        Text('待办类型', style: TextStyle(fontSize: 12, color: theme.muted)),
         const SizedBox(height: 6),
-        Row(
-          children: TaskPriority.values.map((p) {
-            final color = p == TaskPriority.high
-                ? const Color(0xFFFF5252)
-                : p == TaskPriority.medium
-                    ? const Color(0xFFFFA726)
-                    : const Color(0xFF6BCB9D);
-            return Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: PillChip(
-                label: '${p.label}优先级',
-                color: color,
-                selected: _priority == p,
-                onTap: () => setState(() => _priority = p),
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          children: [
+            for (final type in TaskType.values)
+              PillChip(
+                label: switch (type) {
+                  TaskType.single => '单次',
+                  TaskType.repeat => '重复',
+                  TaskType.fixed => '固定',
+                },
+                selected: _type == type,
+                onTap: () => setState(() => _type = type),
               ),
-            );
-          }).toList(),
+          ],
         ),
+        // 单次: 手动优先级 + 预期时间
+        if (_type == TaskType.single) ...[
+          const SizedBox(height: 14),
+          Text('优先级', style: TextStyle(fontSize: 12, color: theme.muted)),
+          const SizedBox(height: 6),
+          Row(
+            children: TaskPriority.values.map((p) {
+              final color = _priorityColor(p);
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: PillChip(
+                  label: '${p.label}优先级',
+                  color: color,
+                  selected: _priority == p,
+                  onTap: () => setState(() => _priority = p),
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 14),
+          _ExpectedAtRow(
+            theme: theme,
+            value: _expectedAt,
+            onChanged: (v) => setState(() => _expectedAt = v),
+          ),
+        ],
+        // 重复: 以天为单位, 任意天数
+        if (_type == TaskType.repeat) ...[
+          const SizedBox(height: 14),
+          Text('重复周期(完成后开始计算, 到期自动回归, 优先级随周期递进)',
+              style: TextStyle(fontSize: 12, color: theme.muted)),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              for (final days in [1, 3, 7, 14, 30])
+                PillChip(
+                  label: days == 1 ? '每天' : '每 $days 天',
+                  selected: _repeatDays == days,
+                  onTap: () => setState(() => _repeatDays = days),
+                ),
+              PillChip(
+                label: [1, 3, 7, 14, 30].contains(_repeatDays)
+                    ? '自定义'
+                    : '每 $_repeatDays 天',
+                icon: Icons.tune,
+                selected: ![1, 3, 7, 14, 30].contains(_repeatDays),
+                onTap: () => _pickCustomDays(),
+              ),
+            ],
+          ),
+        ],
+        // 固定: 每天 / 每周某天 / 每月某日
+        if (_type == TaskType.fixed) ...[
+          const SizedBox(height: 14),
+          Text('固定重复(按指定日期 0 点自动加入待办)',
+              style: TextStyle(fontSize: 12, color: theme.muted)),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              for (final rule in FixedRule.values)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: PillChip(
+                    label: rule.label,
+                    selected: _fixedRule == rule,
+                    onTap: () => setState(() => _fixedRule = rule),
+                  ),
+                ),
+            ],
+          ),
+          if (_fixedRule == FixedRule.weekly) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (var i = 1; i <= 7; i++)
+                  PillChip(
+                    label: weekdayShort(DateTime(2024, 1, i)),
+                    selected: _fixedWeekday == i,
+                    onTap: () => setState(() => _fixedWeekday = i),
+                  ),
+              ],
+            ),
+          ],
+          if (_fixedRule == FixedRule.monthly) ...[
+            const SizedBox(height: 10),
+            _MonthDayPicker(
+              theme: theme,
+              value: _fixedDay,
+              onChanged: (v) => setState(() => _fixedDay = v),
+            ),
+          ],
+        ],
         if (widget.existing?.dueDate != null) ...[
           const SizedBox(height: 14),
           Row(
@@ -145,37 +253,6 @@ class _TaskEditorState extends State<_TaskEditor> {
             ],
           ),
         ],
-        const SizedBox(height: 14),
-        Text('重复周期(满周期后自动回归, 优先级随时间递进)',
-            style: TextStyle(fontSize: 12, color: theme.muted)),
-        const SizedBox(height: 6),
-        Wrap(
-          spacing: 8,
-          runSpacing: 6,
-          children: [
-            for (final (label, days) in [
-              ('不重复', 0),
-              ('每天', 1),
-              ('每3天', 3),
-              ('每周', 7),
-              ('每两周', 14),
-              ('每月', 30),
-            ])
-              PillChip(
-                label: label,
-                selected: _repeatDays == days,
-                onTap: () => setState(() => _repeatDays = days),
-              ),
-            PillChip(
-              label: [0, 1, 3, 7, 14, 30].contains(_repeatDays)
-                  ? '自定义'
-                  : '每 $_repeatDays 天',
-              icon: Icons.tune,
-              selected: ![0, 1, 3, 7, 14, 30].contains(_repeatDays),
-              onTap: () => _pickCustomDays(),
-            ),
-          ],
-        ),
         const SizedBox(height: 14),
         Row(
           children: [
@@ -321,8 +398,7 @@ class _TaskEditorState extends State<_TaskEditor> {
 
   Future<void> _pickCustomDays() async {
     final theme = context.read<SettingsProvider>().currentTheme;
-    final controller = TextEditingController(
-        text: _repeatDays > 0 ? '$_repeatDays' : '');
+    final controller = TextEditingController(text: '$_repeatDays');
     final days = await showDialog<int>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -361,6 +437,17 @@ class _TaskEditorState extends State<_TaskEditor> {
     if (days != null) setState(() => _repeatDays = days);
   }
 
+  Color _priorityColor(TaskPriority p) {
+    switch (p) {
+      case TaskPriority.high:
+        return const Color(0xFFFF5252);
+      case TaskPriority.medium:
+        return const Color(0xFFFFA726);
+      case TaskPriority.low:
+        return const Color(0xFF6BCB9D);
+    }
+  }
+
   void _save() {
     final title = _title.text.trim();
     if (title.isEmpty) {
@@ -374,25 +461,134 @@ class _TaskEditorState extends State<_TaskEditor> {
         .toSet()
         .toList();
     final existing = widget.existing;
-    final base =
-        existing ?? Task(title: title, estimatedPomodoros: _estimate);
+    final base = existing ?? Task(title: title, estimatedPomodoros: _estimate);
     final repeatChanged =
         existing == null || existing.repeatIntervalDays != _repeatDays;
+    final now = DateTime.now();
+    final fixedDueToday = _type == TaskType.fixed && _fixedDueToday(now);
     final result = base.copyWith(
       title: title,
       notes: _notes.text.trim(),
-      priority: _priority,
+      type: _type,
+      priority: _type == TaskType.single ? _priority : existing?.priority ?? TaskPriority.medium,
       estimatedPomodoros: _estimate,
       tags: tags,
       subtasks: _subtasks,
-      repeatIntervalDays: _repeatDays,
-      // 周期变化时重新开始计算周期
+      expectedAt: _type == TaskType.single ? _expectedAt : startOfDay(now),
+      repeatIntervalDays: _type == TaskType.repeat ? _repeatDays : 0,
       cycleStartAt:
-          _repeatDays > 0 && repeatChanged ? DateTime.now() : null,
-      clearCycleStart: _repeatDays == 0,
-      clearNextAppearance: repeatChanged,
+          _type == TaskType.repeat && repeatChanged ? now : null,
+      clearCycleStart: _type != TaskType.repeat,
+      clearNextAppearance: true,
+      fixedRule: _fixedRule,
+      fixedWeekday: _fixedWeekday,
+      fixedDayOfMonth: _fixedDay,
+      lastFixedDate: fixedDueToday && !(existing?.isCompleted ?? false)
+          ? dateKey(now)
+          : null,
+      clearLastFixedDate: !fixedDueToday,
     );
     Navigator.pop(context, result);
+  }
+
+  bool _fixedDueToday(DateTime day) {
+    switch (_fixedRule) {
+      case FixedRule.daily:
+        return true;
+      case FixedRule.weekly:
+        return day.weekday == _fixedWeekday;
+      case FixedRule.monthly:
+        return day.day == _fixedDay.clamp(1, daysInMonth(day.year, day.month));
+    }
+  }
+}
+
+/// 预期时间选择(日期 + 时间, 默认当天 0 点)
+class _ExpectedAtRow extends StatelessWidget {
+  final ThemeDef theme;
+  final DateTime value;
+  final ValueChanged<DateTime> onChanged;
+
+  const _ExpectedAtRow({
+    required this.theme,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final timeText =
+        '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
+    return Row(
+      children: [
+        Text('预期时间', style: TextStyle(fontSize: 12, color: theme.muted)),
+        const Spacer(),
+        PillChip(
+          label: friendlyDate(value),
+          icon: Icons.calendar_today_outlined,
+          onTap: () async {
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: value,
+              firstDate: DateTime(2020),
+              lastDate: DateTime(2100),
+              helpText: '选择预期日期',
+              cancelText: '取消',
+              confirmText: '确定',
+            );
+            if (picked == null) return;
+            onChanged(DateTime(picked.year, picked.month, picked.day,
+                value.hour, value.minute));
+          },
+        ),
+        const SizedBox(width: 6),
+        PillChip(
+          label: timeText,
+          icon: Icons.schedule,
+          onTap: () async {
+            final picked = await showTimePicker(
+              context: context,
+              initialTime: TimeOfDay(hour: value.hour, minute: value.minute),
+              helpText: '选择预期时间',
+              cancelText: '取消',
+              confirmText: '确定',
+            );
+            if (picked == null) return;
+            onChanged(DateTime(value.year, value.month, value.day,
+                picked.hour, picked.minute));
+          },
+        ),
+      ],
+    );
+  }
+}
+
+/// 每月几号选择
+class _MonthDayPicker extends StatelessWidget {
+  final ThemeDef theme;
+  final int value;
+  final ValueChanged<int> onChanged;
+
+  const _MonthDayPicker({
+    required this.theme,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: [
+        for (var d = 1; d <= 31; d++)
+          PillChip(
+            label: '$d',
+            selected: value == d,
+            onTap: () => onChanged(d),
+          ),
+      ],
+    );
   }
 }
 
@@ -445,82 +641,5 @@ class _Stepper extends StatelessWidget {
         child: Icon(icon, size: 16, color: theme.primary),
       ),
     );
-  }
-}
-
-/// 今日页的快速录入
-class QuickTaskInput extends StatefulWidget {
-  const QuickTaskInput({super.key});
-
-  @override
-  State<QuickTaskInput> createState() => _QuickTaskInputState();
-}
-
-class _QuickTaskInputState extends State<QuickTaskInput> {
-  final _controller = TextEditingController();
-  bool _busy = false;
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.watch<SettingsProvider>().currentTheme;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 4, 20, 6),
-      child: Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: _controller,
-              textInputAction: TextInputAction.done,
-              style: TextStyle(fontSize: 13, color: theme.foreground),
-              decoration: appInput(
-                context: context,
-                hint: '快速记录一个待办…',
-                dense: true,
-                prefix: Icon(Icons.add_circle_outline,
-                    size: 17, color: theme.primary),
-              ),
-              onSubmitted: (_) => _submit(),
-            ),
-          ),
-          const SizedBox(width: 8),
-          GestureDetector(
-            onTap: _submit,
-            child: Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: theme.primary,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: _busy
-                  ? const Padding(
-                      padding: EdgeInsets.all(12),
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white),
-                    )
-                  : const Icon(Icons.arrow_upward, color: Colors.white, size: 18),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _submit() async {
-    final text = _controller.text.trim();
-    if (text.isEmpty || _busy) return;
-    setState(() => _busy = true);
-    await context.read<TaskProvider>().addTask(Task(title: text));
-    _controller.clear();
-    if (mounted) {
-      setState(() => _busy = false);
-      showToast(context, '已加入待办');
-    }
   }
 }

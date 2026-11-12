@@ -1,16 +1,85 @@
-# tomato_app
+# 时光秘书 · Shiguang Secretary
 
-A new Flutter project.
+一款专注「个人时间管理」的本地优先 Flutter 应用：日程、待办、番茄钟、目标、记录五位一体，所有数据仅保存在本机。
 
-## Getting Started
+当前版本：**v3.1.0**（versionCode 6）
+包名：`com.tomato.tomato_app`
 
-This project is a starting point for a Flutter application.
+## 核心功能
 
-A few resources to get you started if this is your first Flutter project:
+### 1. 待办（单次 / 重复 / 固定）
+- **单次**：手动选择优先级（默认高）与预期时间（默认当天 0 点）。
+- **重复**：只需设置天数周期（任意 N 天）。完成后从完成时刻起算，满周期自动回到待办；周期内优先级随进度自动递进（低 → 中 → 高）。
+- **固定**：每天 / 每周某天 / 每月某日。到期当天 0 点自动回归待办，单条记录原地复用，不产生重复条目。
+- **排序规则**：手动置顶 → 优先级（高/中/低）→ 预期时间（早 → 晚）→ 创建时间。
+- 子任务支持在待办列表内下拉展开、逐项独立勾选；上拉收起只显示主待办。
+- 徽章顺序：优先级 → 番茄钟 → 周期/固定日期 → 子任务；自动优先级用颜色 + 小箭头表达。
+- 「周期 / 固定待办」管理页可随时取消周期，或让休眠中的待办立即回归。
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+### 2. 专注（番茄钟）
+- 卡片仅保留开始 / 暂停、重置与「常亮」开关，取消阶段切换按钮。
+- 工作结束弹出「继续工作 / 休息」；选择继续则下一轮结束后不再询问，直接进入休息。
+- 休息长短由算法自动判断：最近 3 小时累计专注 ≥ 150 分钟进入长休息，否则短休息。
+- 屏幕常亮生效条件：已开启常亮 + 番茄运行中 + 停留在专注页。
+- 离开专注页或切到后台时，通知栏常驻「专注进行中」；回到专注页自动收起。
+- 专注结束通过高优先级通知提醒，点击回到 App 直接弹出「继续工作 / 休息」选择。
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+### 3. 日程
+- 独立的日程页（日视图）：日期切换、时间块、完成勾选、周视图入口。
+- 「从待办加入日程」：选择一条当前待办，自动生成关联时间块；日程勾选完成会同步完成待办。
+- 今日复盘入口移至日程页；开启每日复盘提醒后，到点发送通知，点击直达复盘编辑。
+
+### 4. 记录（时间轴）
+- 月历 + 当天完成记录，按时间顺序展示「今天先做了什么、后做了什么」。
+- 月历区域已压缩高度，记录区占比更舒适。
+- 右上角入口直达数据统计。
+- 取消完成会同步撤销时间轴对应记录；时间轴仅作展示，不提供单独删除。
+
+### 5. 目标
+- 目标进度、里程碑与平均进度统计；统计页保留目标平均进度，单目标明细在目标页查看。
+
+### 6. 数据统计
+- 周期：**周 / 月 / 季 / 年**，折线图展示专注趋势。
+- 横坐标随周期细化：周 → 周一…周日；月 → 该年第 N 周；季 → 月份；年 → 春 / 夏 / 秋 / 冬。
+- 洞察：最佳专注时段、估时准确度、连续专注天数、逾期数量；另有时间投入与活动热力图。
+
+### 7. 数据与隐私
+- 全部数据保存在本机 SharedPreferences，不上传服务器。
+- 自动清理 366 天前的过期记录，避免无限占用空间。
+- 已移除导出文件 / 剪贴板导入等冗余入口；换机与版本升级由系统备份与同名签名安装保障。
+
+## 技术栈
+- Flutter 3.27 / Dart 3.6，Material 3
+- Provider 状态管理
+- fl_chart 图表、flutter_local_notifications 通知、wakelock_plus 屏幕常亮
+- 完整中文本地化（flutter_localizations）
+
+## 本地运行
+
+```bash
+flutter pub get
+flutter run
+```
+
+## 构建发布版
+
+```bash
+flutter build apk --release
+```
+
+产物：`build/app/outputs/flutter-apk/app-release.apk`
+
+> 签名配置位于 `android/key.properties` 与 `android/upload-keystore.jks`，请勿外泄。
+
+## 目录结构
+
+```
+lib/
+  core/        # 工具函数与全局导航
+  models/      # 待办、日程、目标、复盘、番茄等数据模型
+  providers/   # 状态管理
+  screens/     # 日程 / 待办 / 专注 / 目标 / 记录 / 设置等页面
+  services/    # 存储、通知、计时
+  theme/       # 主题与背景
+  widgets/     # 通用组件与编辑器
+```

@@ -47,6 +47,15 @@ class CompletionProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 撤销某条来源对象最近的一条完成记录(取消完成时调用)
+  Future<void> removeByRef(String refId) async {
+    final idx = _records.indexWhere((r) => r.refId == refId);
+    if (idx < 0) return;
+    _records.removeAt(idx);
+    await _persist();
+    notifyListeners();
+  }
+
   /// 某天的全部完成记录(按时间升序)
   List<CompletionRecord> forDay(DateTime day) {
     final list =
@@ -81,16 +90,5 @@ class CompletionProvider extends ChangeNotifier {
       if (r.timestamp.year == year) counts[r.timestamp.month - 1]++;
     }
     return counts;
-  }
-
-  void reloadFromStorage() {
-    load();
-    notifyListeners();
-  }
-
-  void clearAll() {
-    _records = [];
-    _storage.saveCompletionLog(_records);
-    notifyListeners();
   }
 }

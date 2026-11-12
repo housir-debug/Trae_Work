@@ -1,0 +1,9 @@
+# 构建产物 / 发布包不入库, 避免仓库体积膨胀
+*.apk
+*.aab
+*.zip
+
+# 签名文件与密钥
+*.jks
+*.keystore
+key.properties

@@ -5,6 +5,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
 import 'core/app_navigator.dart';
@@ -19,17 +20,20 @@ import 'providers/pomodoro_provider.dart';
 import 'providers/schedule_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/task_provider.dart';
+import 'screens/focus_screen.dart';
 import 'screens/goals_screen.dart';
 import 'screens/lock_screen.dart';
+import 'screens/schedule_day_screen.dart';
 import 'screens/schedule_screen.dart';
-import 'screens/stats_screen.dart';
 import 'screens/tasks_screen.dart';
 import 'screens/timeline_screen.dart';
-import 'screens/today_screen.dart';
-import 'services/backup_service.dart';
 import 'services/notification_service.dart';
 import 'services/storage_service.dart';
 import 'theme/backgrounds.dart';
+import 'widgets/journal_sheet.dart';
+
+/// 跨页面切换 Tab 的请求(通知点击回到专注页时使用)
+final ValueNotifier<int> appTabRequest = ValueNotifier<int>(-1);
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -111,10 +115,9 @@ class _ShiguangAppState extends State<ShiguangApp> {
 
     _migrateHabits();
     _syncNotifications();
-    _bootstrapBackup();
   }
 
-  /// v3.0 迁移: 习惯打卡合并为「周期重复待办」, 打卡历史进入时间轴
+  /// v3.0 迁移: 习惯打卡合并为「重复待办」, 打卡历史进入时间轴
   Future<void> _migrateHabits() async {
     final storage = StorageService.instance;
     if (storage.habitsMigrated) return;
@@ -123,6 +126,7 @@ class _ShiguangAppState extends State<ShiguangApp> {
       final interval = (7 / h.targetPerWeek).round().clamp(1, 30);
       await _taskProv.addTask(Task(
         title: h.name,
+        type: TaskType.repeat,
         repeatIntervalDays: interval,
         cycleStartAt: DateTime.now(),
       ));
@@ -139,11 +143,6 @@ class _ShiguangAppState extends State<ShiguangApp> {
     }
     await storage.saveHabits([]);
     await storage.markHabitsMigrated();
-  }
-
-  Future<void> _bootstrapBackup() async {
-    if (!_settingsProv.settings.autoBackupEnabled) return;
-    await BackupService(StorageService.instance).autoSnapshotIfNeeded();
   }
 
   /// 合并短时间内的多次变更, 避免频繁取消/重排通知
@@ -193,6 +192,13 @@ class _ShiguangAppState extends State<ShiguangApp> {
             navigatorKey: appNavigatorKey,
             title: '时光秘书',
             debugShowCheckedModeBanner: false,
+            locale: const Locale('zh', 'CN'),
+            supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+            localizationsDelegates: const [
+              GlobalMaterialLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+            ],
             theme: ThemeData(
               useMaterial3: true,
               colorScheme: theme.toColorScheme(
@@ -246,12 +252,31 @@ class _RootGateState extends State<RootGate> with WidgetsBindingObserver {
 
   void _openPendingEvent() {
     if (_locked) return;
-    final key = NotificationService.instance.peekPendingEventDate();
-    if (key == null) return;
-    appNavigatorKey.currentState?.push(MaterialPageRoute(
-      builder: (_) => ScheduleScreen(initialDate: DateTime.tryParse(key)),
-    ));
-    NotificationService.instance.clearPendingEventDate();
+    final notifications = NotificationService.instance;
+    final key = notifications.peekPendingEventDate();
+    if (key != null) {
+      appNavigatorKey.currentState?.push(MaterialPageRoute(
+        builder: (_) => ScheduleScreen(initialDate: DateTime.tryParse(key)),
+      ));
+      notifications.clearPendingEventDate();
+      return;
+    }
+    // 番茄结束通知: 回到专注页并弹出「继续工作 / 休息」
+    if (notifications.hasPendingPomodoro) {
+      notifications.clearPendingPomodoro();
+      appTabRequest.value = 2;
+      Future.delayed(const Duration(milliseconds: 320), () {
+        try {
+          context.read<PomodoroProvider>().showCompletionChoiceIfPending();
+        } catch (_) {}
+      });
+      return;
+    }
+    // 每日复盘提醒: 直接打开今日复盘
+    if (notifications.hasPendingReview) {
+      notifications.clearPendingReview();
+      showJournalEditor(context);
+    }
   }
 
   @override
@@ -268,6 +293,10 @@ class _RootGateState extends State<RootGate> with WidgetsBindingObserver {
       _wasBackground = true;
       _relockTimer?.cancel();
       _relockTimer = null;
+      // 离开应用即视为不在专注页: 取消常亮, 保持通知栏常驻
+      try {
+        context.read<PomodoroProvider>().setFocusPageVisible(false);
+      } catch (_) {}
       // 统一落盘: 确保所有 Provider 的最后一次写入不会丢
       try { context.read<SettingsProvider>().flush(); } catch (_) {}
       try { context.read<TaskProvider>().flush(); } catch (_) {}
@@ -326,16 +355,69 @@ class RootPage extends StatefulWidget {
   State<RootPage> createState() => _RootPageState();
 }
 
-class _RootPageState extends State<RootPage> {
-  int _idx = 0;
+class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
+  int _idx = 2;
 
   List<Widget> get _screens => [
-        TodayScreen(onOpenTasks: () => setState(() => _idx = 1)),
+        const ScheduleDayScreen(),
         const TasksScreen(),
-        const TimelineScreen(),
+        const FocusScreen(),
         const GoalsScreen(),
-        const StatsScreen(),
+        const TimelineScreen(),
       ];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    appTabRequest.addListener(_onTabRequest);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<PomodoroProvider>().setFocusPageVisible(_idx == 2);
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    appTabRequest.removeListener(_onTabRequest);
+    super.dispose();
+  }
+
+  void _onTabRequest() {
+    final target = appTabRequest.value;
+    if (target < 0 || target >= _screens.length) return;
+    appTabRequest.value = -1;
+    _switchTab(target);
+  }
+
+  void _switchTab(int i) {
+    if (!mounted) return;
+    setState(() => _idx = i);
+    final pomo = context.read<PomodoroProvider>();
+    pomo.setFocusPageVisible(i == 2);
+    if (i == 2) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        pomo.showCompletionChoiceIfPending();
+      });
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      try {
+        final pomo = context.read<PomodoroProvider>();
+        pomo.setFocusPageVisible(_idx == 2);
+        if (_idx == 2) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            pomo.showCompletionChoiceIfPending();
+          });
+        }
+      } catch (_) {}
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -356,7 +438,7 @@ class _RootPageState extends State<RootPage> {
       ),
       bottomNavigationBar: _BottomBar(
         index: _idx,
-        onTap: (i) => setState(() => _idx = i),
+        onTap: _switchTab,
         theme: theme,
       ),
     );
@@ -441,11 +523,11 @@ class _BottomBar extends StatelessWidget {
   });
 
   static const _items = [
-    (Icons.wb_sunny_outlined, '今日'),
+    (Icons.event_note_outlined, '日程'),
     (Icons.checklist_rtl, '待办'),
-    (Icons.timeline, '时间轴'),
+    (Icons.timer_outlined, '专注'),
     (Icons.flag_outlined, '目标'),
-    (Icons.insights, '统计'),
+    (Icons.auto_graph_outlined, '记录'),
   ];
 
   @override
@@ -474,6 +556,7 @@ class _BottomBar extends StatelessWidget {
                         icon: _items[i].$1,
                         label: _items[i].$2,
                         active: i == index,
+                        emphasized: i == 2,
                         onTap: () => onTap(i),
                         theme: theme,
                       ),
@@ -492,6 +575,7 @@ class _BottomButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool active;
+  final bool emphasized;
   final VoidCallback onTap;
   final ThemeDef theme;
 
@@ -501,10 +585,48 @@ class _BottomButton extends StatelessWidget {
     required this.active,
     required this.onTap,
     required this.theme,
+    this.emphasized = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    if (emphasized) {
+      return GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: theme.primary,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: theme.primary.withOpacity(active ? 0.42 : 0.28),
+                    blurRadius: 14,
+                    offset: const Offset(0, 5),
+                  ),
+                ],
+              ),
+              child: Icon(icon, size: 22, color: Colors.white),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                color: theme.primary,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,

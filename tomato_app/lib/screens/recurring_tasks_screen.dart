@@ -24,7 +24,7 @@ class RecurringTasksScreen extends StatelessWidget {
       backgroundColor: theme.background,
       appBar: AppBar(
         backgroundColor: theme.background,
-        title: Text('周期管理',
+        title: Text('周期 / 固定待办',
             style: TextStyle(
                 fontSize: 17,
                 fontWeight: FontWeight.w600,
@@ -35,7 +35,7 @@ class RecurringTasksScreen extends StatelessWidget {
               child: Padding(
                 padding: const EdgeInsets.all(40),
                 child: Text(
-                  '还没有周期性待办\n\n在新建/编辑待办时选择重复周期\n(如「每周剪指甲」), 完成后会休眠,\n满周期自动回到待办列表',
+                  '还没有周期性待办\n\n新建待办时选择「重复」或「固定」\n重复按天数循环, 固定按每周几 / 每月几号自动回归',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                       fontSize: 13, color: theme.muted, height: 1.6),
@@ -54,11 +54,19 @@ class RecurringTasksScreen extends StatelessWidget {
       Task t) {
     final dormant = t.isDormant;
     final progress = t.cycleProgress.clamp(0.0, 1.0);
-    final subtitle = dormant
-        ? '休眠中 · ${friendlyDate(t.nextAppearanceAt!)} 回归'
-        : t.isOverdue
-            ? '已逾期 · 请尽快处理'
-            : '周期进度 ${(progress * 100).toInt()}% · 当前优先级 ${t.effectivePriority.label}';
+    final String subtitle;
+    if (t.isFixed) {
+      subtitle = t.isCompleted
+          ? '本次已完成 · 下次 ${t.repeatLabel} 自动回归'
+          : '${t.repeatLabel} · 到期当天自动加入待办';
+    } else if (dormant) {
+      subtitle = '休眠中 · ${friendlyDate(t.nextAppearanceAt!)} 回归';
+    } else if (t.isOverdue) {
+      subtitle = '已逾期 · 请尽快处理';
+    } else {
+      subtitle =
+          '周期进度 ${(progress * 100).toInt()}% · 当前优先级 ${t.effectivePriority.label}';
+    }
     return AppCard(
       margin: const EdgeInsets.fromLTRB(16, 5, 16, 5),
       padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
@@ -160,7 +168,7 @@ class RecurringTasksScreen extends StatelessWidget {
               ),
             ],
           ),
-          if (!dormant && t.isRecurring) ...[
+          if (!dormant && t.isRepeat) ...[
             const SizedBox(height: 8),
             ClipRRect(
               borderRadius: BorderRadius.circular(4),

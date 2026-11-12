@@ -1,6 +1,7 @@
 // providers/task_provider.dart - 待办任务状态
-// v3.0: 单一优先级列表; 周期任务完成后休眠、满周期自动回归;
-//       加载时自动裁剪 366 天前的已完成任务
+// v3.1: 排序规则 置顶 > 优先级 > 预期时间 > 创建时间
+//       支持 单次 / 重复 / 固定 三类待办; 固定待办到点自动回归(单条复用)
+//       完成写入时间轴, 取消完成同步撤销记录
 import 'package:flutter/material.dart';
 
 import '../core/utils.dart';
@@ -16,7 +17,7 @@ class TaskProvider extends ChangeNotifier {
   /// 完成记录(时间轴), 由 main 注入
   CompletionProvider? completions;
 
-  /// 日程联动(日程完成 -> 任务完成 反向同步), 由 main 注入
+  /// 日程联动(待办完成 -> 日程完成 反向同步), 由 main 注入
   void Function(String taskId, bool done)? onTaskLinkedEvent;
 
   static const int keepCompletedDays = 366;
@@ -38,16 +39,24 @@ class TaskProvider extends ChangeNotifier {
   int _activeLastRevision = -1;
   List<Task>? _activeCache;
 
-  /// 进行中的任务(不含休眠中的周期任务), 置顶优先, 再按有效优先级
+  /// 进行中的任务(不含休眠中的重复任务; 固定任务仅在到期当天出现)
   List<Task> get activeTasks {
     if (_activeLastRevision == _activeRevision && _activeCache != null) {
       return _activeCache!;
     }
-    final active = _tasks.where((t) => !t.isCompleted && !t.isDormant).toList();
+    final today = DateTime.now();
+    final active = _tasks
+        .where((t) =>
+            !t.isCompleted &&
+            !t.isDormant &&
+            (!t.isFixed || t.fixedDueOn(today)))
+        .toList();
     active.sort((a, b) {
       if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
       final cmp = a.effectivePriority.rank.compareTo(b.effectivePriority.rank);
       if (cmp != 0) return cmp;
+      final byExpected = a.expectedAt.compareTo(b.expectedAt);
+      if (byExpected != 0) return byExpected;
       return a.createdAt.compareTo(b.createdAt);
     });
     _activeCache = active;
@@ -59,7 +68,7 @@ class TaskProvider extends ChangeNotifier {
   int _completedLastRevision = -1;
   List<Task>? _completedCache;
 
-  /// 已完成任务(含休眠中的周期任务), 按完成时间倒序
+  /// 已完成任务, 按完成时间倒序
   List<Task> get completedTasks {
     if (_completedLastRevision == _completedRevision && _completedCache != null) {
       return _completedCache!;
@@ -77,7 +86,7 @@ class TaskProvider extends ChangeNotifier {
 
   int get activeCount => activeTasks.length;
 
-  /// 全部周期任务(含休眠中), 周期管理页用
+  /// 全部周期性任务(重复 + 固定), 周期管理页用
   List<Task> get recurringTasks =>
       _tasks.where((t) => t.isRecurring).toList();
 
@@ -110,11 +119,12 @@ class TaskProvider extends ChangeNotifier {
     _tasks = _storage.loadTasks();
     _pruneOld();
     refreshRecurring(notify: false);
+    refreshFixed(notify: false);
     _invalidateCaches();
     notifyListeners();
   }
 
-  /// 自动裁剪 366 天前已完成的普通任务(周期任务保留, 它还要循环)
+  /// 自动裁剪 366 天前已完成的单次任务(周期任务保留, 它还要循环)
   void _pruneOld() {
     final cutoff = DateTime.now().subtract(const Duration(days: keepCompletedDays));
     final before = _tasks.length;
@@ -128,7 +138,7 @@ class TaskProvider extends ChangeNotifier {
     }
   }
 
-  /// 到期的休眠周期任务重新激活(满周期自动回归)
+  /// 到期的休眠重复任务重新激活(满周期自动回归)
   void refreshRecurring({bool notify = true}) {
     final now = DateTime.now();
     var changed = false;
@@ -154,6 +164,34 @@ class TaskProvider extends ChangeNotifier {
     }
   }
 
+  /// 固定待办到点回归: 到期当天 0 点后第一次检查时重置为未完成
+  /// 未完成的旧待办被原地复用(不会产生重复条目)
+  void refreshFixed({bool notify = true}) {
+    final now = DateTime.now();
+    final todayKey = dateKey(now);
+    var changed = false;
+    for (var i = 0; i < _tasks.length; ++i) {
+      final t = _tasks[i];
+      if (!t.isFixed || !t.fixedDueOn(now)) continue;
+      if (t.lastFixedDate == todayKey) continue;
+      _tasks[i] = t.copyWith(
+        isCompleted: false,
+        clearCompletedAt: true,
+        subtasks: t.subtasks
+            .map((s) => s.copyWith(isDone: false))
+            .toList(growable: false),
+        lastFixedDate: todayKey,
+        cycleStartAt: startOfDay(now),
+      );
+      changed = true;
+    }
+    if (changed) {
+      _invalidateCaches();
+      _storage.saveTasks(_tasks);
+      if (notify) notifyListeners();
+    }
+  }
+
   void _invalidateCaches() {
     _activeRevision++;
     _completedRevision++;
@@ -167,8 +205,11 @@ class TaskProvider extends ChangeNotifier {
   Future<void> flush() async => _persist();
 
   Future<void> addTask(Task task) async {
-    if (task.isRecurring && task.cycleStartAt == null) {
+    if (task.isRepeat && task.cycleStartAt == null) {
       task.cycleStartAt = DateTime.now();
+    }
+    if (task.isFixed && task.lastFixedDate == null && task.fixedDueOn(DateTime.now())) {
+      task.lastFixedDate = dateKey(DateTime.now());
     }
     _tasks.insert(0, task);
     _invalidateCaches();
@@ -194,29 +235,35 @@ class TaskProvider extends ChangeNotifier {
     final now = DateTime.now();
 
     if (completing) {
-      if (t.isRecurring) {
-        // 周期任务: 完成后休眠, 满周期后自动回归(周期从完成时刻起算)
+      if (t.isRepeat) {
+        // 重复任务: 完成后休眠, 满周期后自动回归(周期从完成时刻起算)
         _tasks[idx] = t.copyWith(
           isCompleted: true,
           completedAt: now,
           nextAppearanceAt: now.add(Duration(days: t.repeatIntervalDays)),
         );
       } else {
-        _tasks[idx] = t.copyWith(isCompleted: true, completedAt: now);
+        _tasks[idx] = t.copyWith(
+          isCompleted: true,
+          completedAt: now,
+          lastFixedDate: t.isFixed ? dateKey(now) : null,
+        );
       }
-      completions?.add(CompletionRecord(
+      await completions?.add(CompletionRecord(
         title: t.title,
         kind: CompletionKind.task,
         timestamp: now,
-        note: t.isRecurring ? '周期:${t.repeatLabel}' : '',
+        note: t.isRecurring ? t.repeatLabel : '',
+        refId: t.id,
       ));
     } else {
       _tasks[idx] = t.copyWith(
         isCompleted: false,
         clearCompletedAt: true,
         clearNextAppearance: true,
-        cycleStartAt: t.isRecurring ? now : t.cycleStartAt,
+        cycleStartAt: t.isRepeat ? now : t.cycleStartAt,
       );
+      await completions?.removeByRef(t.id);
     }
 
     _invalidateCaches();
@@ -269,21 +316,23 @@ class TaskProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 取消周期(变成普通一次性任务)
+  /// 取消周期(变成普通单次任务)
   Future<void> cancelRepeat(String id) async {
     final idx = _tasks.indexWhere((t) => t.id == id);
     if (idx < 0) return;
     _tasks[idx] = _tasks[idx].copyWith(
+      type: TaskType.single,
       repeatIntervalDays: 0,
       clearNextAppearance: true,
       clearCycleStart: true,
+      clearLastFixedDate: true,
     );
     _invalidateCaches();
     await _persist();
     notifyListeners();
   }
 
-  /// 休眠中的周期任务立即重新激活
+  /// 休眠中的重复任务立即重新激活
   Future<void> activateNow(String id) async {
     final idx = _tasks.indexWhere((t) => t.id == id);
     if (idx < 0) return;
@@ -311,15 +360,22 @@ class TaskProvider extends ChangeNotifier {
     final copy = Task(
       title: '${t.title} (副本)',
       notes: t.notes,
+      type: t.type,
       priority: t.priority,
       estimatedPomodoros: t.estimatedPomodoros,
       dueDate: t.dueDate,
+      expectedAt: t.expectedAt,
       tags: List<String>.from(t.tags),
       subtasks: t.subtasks
           .map((s) => s.copyWith(isDone: false))
           .toList(growable: false),
       repeatIntervalDays: t.repeatIntervalDays,
-      cycleStartAt: t.isRecurring ? DateTime.now() : null,
+      cycleStartAt: t.isRepeat ? DateTime.now() : null,
+      fixedRule: t.fixedRule,
+      fixedWeekday: t.fixedWeekday,
+      fixedDayOfMonth: t.fixedDayOfMonth,
+      lastFixedDate:
+          t.isFixed && t.fixedDueOn(DateTime.now()) ? dateKey(DateTime.now()) : null,
     );
     _tasks.insert(0, copy);
     _invalidateCaches();
@@ -350,10 +406,5 @@ class TaskProvider extends ChangeNotifier {
           t.notes.toLowerCase().contains(k) ||
           t.tags.any((tag) => tag.toLowerCase().contains(k));
     }).toList();
-  }
-
-  /// 导入备份后重新读取本地数据
-  void reloadFromStorage() {
-    load();
   }
 }

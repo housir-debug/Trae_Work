@@ -77,25 +77,16 @@ class SettingsProvider extends ChangeNotifier {
     int? work,
     int? shortBreak,
     int? longBreak,
-    int? longBreakInterval,
   }) async {
     await update(_settings.copyWith(
       workDuration: work,
       shortBreakDuration: shortBreak,
       longBreakDuration: longBreak,
-      longBreakInterval: longBreakInterval,
     ));
   }
 
-  Future<void> setDailyGoals({int? focus, int? tasks}) async {
-    await update(_settings.copyWith(
-      dailyFocusGoal: focus,
-      dailyTaskGoal: tasks,
-    ));
-  }
-
-  Future<void> toggleAutoStart() async {
-    await update(_settings.copyWith(autoStartNext: !_settings.autoStartNext));
+  Future<void> setDailyGoals({int? focus}) async {
+    await update(_settings.copyWith(dailyFocusGoal: focus));
   }
 
   Future<void> toggleNotification() async {
@@ -105,10 +96,6 @@ class SettingsProvider extends ChangeNotifier {
 
   Future<void> toggleVibrate() async {
     await update(_settings.copyWith(enableVibrate: !_settings.enableVibrate));
-  }
-
-  Future<void> setKeepScreenOn(bool v) async {
-    await update(_settings.copyWith(keepScreenOn: v));
   }
 
   // ---------- 提醒 ----------
@@ -137,11 +124,6 @@ class SettingsProvider extends ChangeNotifier {
   // ---------- 安全 ----------
   Future<void> setRelockDelay(int seconds) async {
     await update(_settings.copyWith(relockDelaySeconds: seconds));
-  }
-
-  // ---------- 备份 ----------
-  Future<void> setAutoBackup(bool v) async {
-    await update(_settings.copyWith(autoBackupEnabled: v));
   }
 
   // ---------- 应用锁 ----------

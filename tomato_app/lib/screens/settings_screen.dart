@@ -1,30 +1,17 @@
 // screens/settings_screen.dart - 设置中心
-import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../core/utils.dart';
-import '../models/app_settings.dart';
-import '../providers/completion_provider.dart';
-import '../providers/goal_provider.dart';
-import '../providers/journal_provider.dart';
-import '../providers/pomodoro_provider.dart';
-import '../providers/schedule_provider.dart';
 import '../providers/settings_provider.dart';
-import '../providers/task_provider.dart';
-import '../services/backup_service.dart';
 import '../services/notification_service.dart';
-import '../services/storage_service.dart';
 import '../theme/backgrounds.dart';
 import '../widgets/ui.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
-
-  BackupService get _backup => BackupService(StorageService.instance);
 
   @override
   Widget build(BuildContext context) {
@@ -70,19 +57,6 @@ class SettingsScreen extends StatelessWidget {
                       activeColor: theme.primary,
                       onChanged: (v) =>
                           sp.setDailyGoals(focus: (v / 30).round() * 30),
-                    ),
-                  ),
-                  _SliderRow(
-                    label: '每日完成待办',
-                    value: '${settings.dailyTaskGoal} 项',
-                    child: Slider(
-                      value: settings.dailyTaskGoal.toDouble(),
-                      min: 1,
-                      max: 20,
-                      divisions: 19,
-                      activeColor: theme.primary,
-                      onChanged: (v) =>
-                          sp.setDailyGoals(tasks: v.round()),
                     ),
                   ),
                 ],
@@ -136,36 +110,6 @@ class SettingsScreen extends StatelessWidget {
                       onChanged: (v) =>
                           sp.updateDuration(longBreak: v.round()),
                     ),
-                  ),
-                  _SliderRow(
-                    label: '长休间隔',
-                    value: '每 ${settings.longBreakInterval} 个番茄',
-                    child: Slider(
-                      value: settings.longBreakInterval.toDouble(),
-                      min: 2,
-                      max: 8,
-                      divisions: 6,
-                      activeColor: theme.primary,
-                      onChanged: (v) => sp.updateDuration(
-                          longBreakInterval: v.round()),
-                    ),
-                  ),
-                  _SwitchRow(
-                    icon: Icons.play_circle_outline,
-                    title: '自动开始下一阶段',
-                    subtitle: '专注结束后自动进入休息',
-                    value: settings.autoStartNext,
-                    onChanged: (_) => sp.toggleAutoStart(),
-                  ),
-                  Divider(
-                      height: 1,
-                      color: theme.foreground.withOpacity(0.06)),
-                  _SwitchRow(
-                    icon: Icons.lightbulb_outline,
-                    title: '专注时屏幕常亮',
-                    subtitle: '专注进行中保持屏幕不熄灭',
-                    value: settings.keepScreenOn,
-                    onChanged: (v) => sp.setKeepScreenOn(v),
                   ),
                 ],
               ),
@@ -539,7 +483,7 @@ class SettingsScreen extends StatelessWidget {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            '所有待办、习惯、目标、复盘与专注记录均保存在本机, 不上传任何服务器; 建议定期导出备份。',
+                            '所有待办、目标、日程、复盘与专注记录均保存在本机, 不上传任何服务器; 超过一年的过期记录会自动清理。',
                             style: TextStyle(
                                 fontSize: 10.5,
                                 height: 1.5,
@@ -548,62 +492,6 @@ class SettingsScreen extends StatelessWidget {
                         ),
                       ],
                     ),
-                  ),
-                ],
-              ),
-            ),
-            // ---------------- 数据 ----------------
-            SectionHeader(
-              title: '数据管理',
-              margin: const EdgeInsets.fromLTRB(0, 24, 0, 10),
-            ),
-            AppCard(
-              padding: const EdgeInsets.symmetric(vertical: 2),
-              child: Column(
-                children: [
-                  _ActionRow(
-                    icon: Icons.ios_share,
-                    title: '导出备份文件',
-                    subtitle: '生成 JSON 备份并分享或保存',
-                    onTap: () => _exportFile(context),
-                  ),
-                  _ActionRow(
-                    icon: Icons.folder_open_outlined,
-                    title: '从文件恢复',
-                    subtitle: '选择之前导出的备份文件',
-                    onTap: () => _importFile(context),
-                  ),
-                  _SwitchRow(
-                    icon: Icons.backup_outlined,
-                    title: '自动每日快照',
-                    subtitle: '每天首次打开时自动备份, 保留最近 14 份',
-                    value: settings.autoBackupEnabled,
-                    onChanged: (v) => sp.setAutoBackup(v),
-                  ),
-                  Divider(
-                      height: 1,
-                      color: theme.foreground.withOpacity(0.06)),
-                  _ActionRow(
-                    icon: Icons.content_copy,
-                    title: '复制备份到剪贴板',
-                    subtitle: '适合快速粘贴保存',
-                    onTap: () => _export(context),
-                  ),
-                  _ActionRow(
-                    icon: Icons.content_paste,
-                    title: '从剪贴板恢复',
-                    subtitle: '粘贴之前导出的备份内容',
-                    onTap: () => _import(context),
-                  ),
-                  Divider(
-                      height: 1,
-                      color: theme.foreground.withOpacity(0.06)),
-                  _ActionRow(
-                    icon: Icons.delete_outline,
-                    title: '清空全部数据',
-                    subtitle: '不可恢复, 请先导出备份',
-                    danger: true,
-                    onTap: () => _clear(context),
                   ),
                 ],
               ),
@@ -646,7 +534,7 @@ class SettingsScreen extends StatelessWidget {
                                 fontWeight: FontWeight.w700,
                                 color: theme.foreground)),
                         const SizedBox(height: 2),
-                        Text('版本 3.0.0 · 专属个人的时间管理秘书',
+                        Text('版本 3.1.0 · 专属个人的时间管理秘书',
                             style: TextStyle(
                                 fontSize: 10, color: theme.muted)),
                         Text('无需会员 · 无广告 · 全部功能开放',
@@ -762,38 +650,6 @@ class SettingsScreen extends StatelessWidget {
     }
   }
 
-  Future<void> _exportFile(BuildContext context) async {
-    try {
-      final path = await _backup.createShareableBackup();
-      await Share.shareXFiles([XFile(path)], text: '时光秘书 · 数据备份');
-      if (context.mounted) showToast(context, '备份已生成');
-    } catch (e) {
-      if (context.mounted) showToast(context, '生成备份失败: $e');
-    }
-  }
-
-  Future<void> _importFile(BuildContext context) async {
-    try {
-      final file = await openFile(acceptedTypeGroups: [
-        const XTypeGroup(label: '备份文件', extensions: ['json']),
-      ]);
-      if (file == null) return;
-      final raw = await file.readAsString();
-      if (!context.mounted) return;
-      final ok = await showConfirmDialog(context,
-          title: '从文件恢复?',
-          content: '导入后将覆盖当前全部数据, 确定继续吗?',
-          confirmText: '恢复');
-      if (!ok || !context.mounted) return;
-      await StorageService.instance.importBackup(raw);
-      if (!context.mounted) return;
-      _reloadAll(context);
-      if (context.mounted) showToast(context, '数据已恢复');
-    } catch (e) {
-      if (context.mounted) showToast(context, '恢复失败, 备份文件无效');
-    }
-  }
-
   String _minuteText(int minute) =>
       '${(minute ~/ 60).toString().padLeft(2, '0')}:'
       '${(minute % 60).toString().padLeft(2, '0')}';
@@ -803,63 +659,12 @@ class SettingsScreen extends StatelessWidget {
       context: context,
       initialTime:
           TimeOfDay(hour: current ~/ 60, minute: current % 60),
+      helpText: '选择提醒时间',
+      cancelText: '取消',
+      confirmText: '确定',
     );
     if (picked == null) return null;
     return picked.hour * 60 + picked.minute;
-  }
-
-  Future<void> _export(BuildContext context) async {
-    final data = StorageService.instance.exportBackup();
-    await Clipboard.setData(ClipboardData(text: data));
-    if (context.mounted) {
-      showToast(context, '备份已复制到剪贴板, 请妥善保存');
-    }
-  }
-
-  Future<void> _import(BuildContext context) async {
-    final data = await Clipboard.getData(Clipboard.kTextPlain);
-    if (!context.mounted) return;
-    final text = data?.text?.trim();
-    if (text == null || text.isEmpty) {
-      if (context.mounted) showToast(context, '剪贴板为空');
-      return;
-    }
-    final ok = await showConfirmDialog(context,
-        title: '从剪贴板恢复?',
-        content: '导入后将覆盖当前全部数据, 确定继续吗?',
-        confirmText: '恢复');
-    if (!ok || !context.mounted) return;
-    try {
-      await StorageService.instance.importBackup(text);
-      if (!context.mounted) return;
-      _reloadAll(context);
-      if (context.mounted) showToast(context, '数据已恢复');
-    } catch (e) {
-      if (context.mounted) showToast(context, '恢复失败, 备份内容无效');
-    }
-  }
-
-  Future<void> _clear(BuildContext context) async {
-    final ok = await showConfirmDialog(context,
-        title: '清空全部数据?',
-        content: '待办、目标、日程、复盘、时间轴和专注记录都会被删除, 且无法恢复。',
-        danger: true,
-        confirmText: '全部清空');
-    if (!ok || !context.mounted) return;
-    await StorageService.instance.clearAll();
-    if (!context.mounted) return;
-    _reloadAll(context);
-    if (context.mounted) showToast(context, '已清空, 回到初始状态');
-  }
-
-  void _reloadAll(BuildContext context) {
-    context.read<SettingsProvider>().load();
-    context.read<TaskProvider>().load();
-    context.read<CompletionProvider>().reloadFromStorage();
-    context.read<GoalProvider>().load();
-    context.read<ScheduleProvider>().load();
-    context.read<JournalProvider>().load();
-    context.read<PomodoroProvider>().reloadFromStorage();
   }
 }
 
@@ -1128,59 +933,3 @@ class _ReminderRow extends StatelessWidget {
     );
   }
 }
-
-class _ActionRow extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-  final bool danger;
-
-  const _ActionRow({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-    this.danger = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.watch<SettingsProvider>().currentTheme;
-    final color = danger ? const Color(0xFFFF5252) : theme.primary;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-        child: Row(
-          children: [
-            Icon(icon, size: 19, color: color),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title,
-                      style: TextStyle(
-                          fontSize: 13, color: color)),
-                  const SizedBox(height: 2),
-                  Text(subtitle,
-                      style: TextStyle(
-                          fontSize: 10, color: theme.muted)),
-                ],
-              ),
-            ),
-            Icon(Icons.chevron_right, size: 16, color: theme.muted),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// 供外部调用时读取当前设置
-AppSettings currentSettings(BuildContext context) =>
-    context.read<SettingsProvider>().settings;
-
-String todayLabel() => shortDate(DateTime.now());
