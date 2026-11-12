@@ -1,5 +1,10 @@
-// theme/backgrounds.dart - 内置主题 & 预设背景
+// theme/backgrounds.dart - 内置主题 & 预设背景 & 可复用背景层
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import '../models/app_settings.dart';
 
 class ThemeDef {
   final String name;
@@ -115,3 +120,115 @@ const List<List<Color>> kGradientBackgrounds = [
   [Color(0xFF43E97B), Color(0xFF38F9D7)],
   [Color(0xFFFA709A), Color(0xFFFEE140)],
 ];
+
+/// 可复用的背景层: 支持自定义图片 / 预设渐变 / 主题渐变, 并按 settings.backgroundOpacity 做暗色蒙层
+/// 独立页面 (通过 Navigator.push 打开的全屏页) 用它保持与主界面一致的视觉层
+class AppBackground extends StatelessWidget {
+  final AppSettings settings;
+  final ThemeDef theme;
+
+  const AppBackground({
+    super.key,
+    required this.settings,
+    required this.theme,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final path = settings.customBackgroundPath;
+
+    Widget base;
+    if (path != null && path.startsWith('grad_')) {
+      final idx = int.tryParse(path.substring(5)) ?? 0;
+      final colors = kGradientBackgrounds[
+          idx.clamp(0, kGradientBackgrounds.length - 1).toInt()];
+      base = DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: colors,
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+      );
+    } else if (path != null && path.isNotEmpty) {
+      base = Image.file(
+        File(path),
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => _themeGradient(),
+      );
+    } else {
+      base = _themeGradient();
+    }
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        base,
+        Container(
+          color: Colors.black.withOpacity(
+            settings.backgroundOpacity.clamp(0.0, 0.85).toDouble(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _themeGradient() {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [theme.background, theme.primary.withOpacity(0.28)],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+      ),
+    );
+  }
+}
+
+/// 给独立全屏页用的 Scaffold: 统一背景层 + 状态栏图标配色 + 安全区
+class ThemedScaffold extends StatelessWidget {
+  final Widget body;
+  final PreferredSizeWidget? appBar;
+  final bool extendBodyBehindAppBar;
+  final Widget? floatingActionButton;
+  final Widget? bottomNavigationBar;
+
+  const ThemedScaffold({
+    super.key,
+    required this.body,
+    this.appBar,
+    this.extendBodyBehindAppBar = false,
+    this.floatingActionButton,
+    this.bottomNavigationBar,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final sc = theme.colorScheme;
+    final isDark = sc.brightness == Brightness.dark;
+    // 状态栏图标颜色跟随背景
+    final overlay = SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+      statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
+      systemNavigationBarColor: Colors.transparent,
+      systemNavigationBarIconBrightness:
+          isDark ? Brightness.light : Brightness.dark,
+    );
+
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: overlay,
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        extendBodyBehindAppBar: extendBodyBehindAppBar,
+        appBar: appBar,
+        body: SafeArea(child: body),
+        floatingActionButton: floatingActionButton,
+        bottomNavigationBar: bottomNavigationBar,
+      ),
+    );
+  }
+}

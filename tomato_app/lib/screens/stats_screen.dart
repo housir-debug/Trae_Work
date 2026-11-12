@@ -1,7 +1,7 @@
 // screens/stats_screen.dart - 数据统计(周 / 月 / 季 / 年)
-// v3.1: 入口移至「记录」页; 统计周期改为 周/月/季/年, 折线图随周期细化横坐标;
-//       保留目标平均进度, 移除单目标进度列表
+// 入口在「记录」页; 统计周期 周/月/季/年, 折线图随周期细化横坐标
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
 
@@ -42,6 +42,7 @@ class _StatsScreenState extends State<StatsScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = context.watch<SettingsProvider>().currentTheme;
+    final settings = context.watch<SettingsProvider>().settings;
     final pomo = context.watch<PomodoroProvider>();
     final tasks = context.watch<TaskProvider>();
     final completions = context.watch<CompletionProvider>();
@@ -76,10 +77,27 @@ class _StatsScreenState extends State<StatsScreen> {
     final bestHour = _bestHour(pomo.records, range.$1, range.$2);
     final accuracy = _accuracy(tasks, range.$1, range.$2);
 
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
+    final overlay = SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness:
+          theme.isDark ? Brightness.light : Brightness.dark,
+      statusBarBrightness:
+          theme.isDark ? Brightness.dark : Brightness.light,
+    );
+
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: overlay,
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: Stack(
+          fit: StackFit.expand,
+          children: [
+            AppBackground(settings: settings, theme: theme),
+            SafeArea(
+              child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 8, 20, 4),
             child: Row(
@@ -252,9 +270,14 @@ class _StatsScreenState extends State<StatsScreen> {
             ),
           ),
           const SizedBox(height: 40),
+                ],
+              ),
+            ),
+          ),
         ],
-      ),
-    );
+          ),
+        ),
+      );
   }
 
   // ---------- 周期区间 ----------

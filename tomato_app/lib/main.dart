@@ -1,7 +1,5 @@
-// main.dart - 时光秘书 入口 / 主题 / 背景 / 底部导航
+// main.dart - 时光秘书 入口 / 主题 / 底部导航
 import 'dart:async';
-import 'dart:io';
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -440,71 +438,6 @@ class _RootPageState extends State<RootPage> with WidgetsBindingObserver {
         index: _idx,
         onTap: _switchTab,
         theme: theme,
-      ),
-    );
-  }
-}
-
-// ============ 背景 ============
-class AppBackground extends StatelessWidget {
-  final AppSettings settings;
-  final ThemeDef theme;
-
-  const AppBackground({
-    super.key,
-    required this.settings,
-    required this.theme,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final path = settings.customBackgroundPath;
-
-    Widget base;
-    if (path != null && path.startsWith('grad_')) {
-      final idx = int.tryParse(path.substring(5)) ?? 0;
-      final colors = kGradientBackgrounds[
-          idx.clamp(0, kGradientBackgrounds.length - 1).toInt()];
-      base = DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: colors,
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-      );
-    } else if (path != null && path.isNotEmpty) {
-      base = Image.file(
-        File(path),
-        fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => _themeGradient(),
-      );
-    } else {
-      base = _themeGradient();
-    }
-
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        base,
-        Container(
-          color: Colors.black.withOpacity(
-            settings.backgroundOpacity.clamp(0.0, 0.85).toDouble(),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _themeGradient() {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [theme.background, theme.primary.withOpacity(0.28)],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
       ),
     );
   }

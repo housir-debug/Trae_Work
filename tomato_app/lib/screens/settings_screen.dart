@@ -1,4 +1,4 @@
-// screens/settings_screen.dart - 设置中心
+// 设置中心
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -19,19 +19,33 @@ class SettingsScreen extends StatelessWidget {
     final sp = context.watch<SettingsProvider>();
     final settings = sp.settings;
 
-    return Scaffold(
-      backgroundColor: theme.background,
-      appBar: AppBar(
-        backgroundColor: theme.background,
-        elevation: 0,
-        foregroundColor: theme.foreground,
-        title: Text('设置',
-            style: TextStyle(
-                fontSize: 19,
-                fontWeight: FontWeight.w700,
-                color: theme.foreground)),
-      ),
-      body: SingleChildScrollView(
+    final overlay = SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness:
+          theme.isDark ? Brightness.light : Brightness.dark,
+      statusBarBrightness:
+          theme.isDark ? Brightness.dark : Brightness.light,
+    );
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        AppBackground(settings: settings, theme: theme),
+        AnnotatedRegion<SystemUiOverlayStyle>(
+          value: overlay,
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            appBar: AppBar(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              foregroundColor: theme.foreground,
+              title: Text('设置',
+                  style: TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w700,
+                      color: theme.foreground)),
+            ),
+            body: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 4, 20, 40),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -547,9 +561,12 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 40),
-          ],
+                ],
+              ),
+            ),
+          ),
         ),
-      ),
+      ],
     );
   }
 

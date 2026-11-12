@@ -1,4 +1,4 @@
-// screens/lock_screen.dart - 应用锁
+// 应用锁
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -58,99 +58,108 @@ class _LockScreenState extends State<LockScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = context.watch<SettingsProvider>().currentTheme;
-    return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              theme.background,
-              theme.primary.withOpacity(0.22),
-              theme.background,
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              const Spacer(flex: 2),
-              Container(
-                width: 74,
-                height: 74,
-                decoration: BoxDecoration(
-                  color: theme.primary.withOpacity(0.12),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(Icons.lock_outline,
-                    size: 34, color: theme.primary),
-              ),
-              const SizedBox(height: 18),
-              Text('时光秘书',
-                  style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                      color: theme.foreground)),
-              const SizedBox(height: 6),
-              Text('请输入 4 位数字密码',
-                  style: TextStyle(fontSize: 12, color: theme.muted)),
-              const SizedBox(height: 28),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(4, (i) {
-                  final filled = i < _pin.length;
-                  return AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    width: 14,
-                    height: 14,
-                    margin: const EdgeInsets.symmetric(horizontal: 10),
+    final sp = context.watch<SettingsProvider>();
+    final settings = sp.settings;
+
+    final overlay = SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness:
+          theme.isDark ? Brightness.light : Brightness.dark,
+      statusBarBrightness:
+          theme.isDark ? Brightness.dark : Brightness.light,
+    );
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        AppBackground(settings: settings, theme: theme),
+        AnnotatedRegion<SystemUiOverlayStyle>(
+          value: overlay,
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            body: SafeArea(
+              child: Column(
+                children: [
+                  const Spacer(flex: 2),
+                  Container(
+                    width: 74,
+                    height: 74,
                     decoration: BoxDecoration(
-                      color: filled ? theme.primary : Colors.transparent,
+                      color: theme.primary.withOpacity(0.12),
                       shape: BoxShape.circle,
-                      border: Border.all(
-                        color: filled
-                            ? theme.primary
-                            : theme.foreground.withOpacity(0.22),
-                        width: 1.5,
+                    ),
+                    child: Icon(Icons.lock_outline,
+                        size: 34, color: theme.primary),
+                  ),
+                  const SizedBox(height: 18),
+                  Text('时光秘书',
+                      style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w700,
+                          color: theme.foreground)),
+                  const SizedBox(height: 6),
+                  Text('请输入 4 位数字密码',
+                      style: TextStyle(fontSize: 12, color: theme.muted)),
+                  const SizedBox(height: 28),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(4, (i) {
+                      final filled = i < _pin.length;
+                      return AnimatedContainer(
+                        duration: const Duration(milliseconds: 150),
+                        width: 14,
+                        height: 14,
+                        margin: const EdgeInsets.symmetric(horizontal: 10),
+                        decoration: BoxDecoration(
+                          color: filled ? theme.primary : Colors.transparent,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: filled
+                                ? theme.primary
+                                : theme.foreground.withOpacity(0.22),
+                            width: 1.5,
+                          ),
+                        ),
+                      );
+                    }),
+                  ),
+                  SizedBox(
+                    height: 34,
+                    child: Center(
+                      child: Text(
+                        _error ?? '',
+                        style: const TextStyle(
+                            fontSize: 11, color: Color(0xFFFF5252)),
                       ),
                     ),
-                  );
-                }),
-              ),
-              SizedBox(
-                height: 34,
-                child: Center(
-                  child: Text(
-                    _error ?? '',
-                    style: const TextStyle(
-                        fontSize: 11, color: Color(0xFFFF5252)),
                   ),
-                ),
+                  const Spacer(),
+                  _Keypad(
+                    theme: theme,
+                    onDigit: _tap,
+                    onBackspace: _backspace,
+                  ),
+                  const Spacer(),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 18),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.shield_outlined,
+                            size: 13, color: theme.muted),
+                        const SizedBox(width: 4),
+                        Text('数据仅保存在本机, 仅你可访问',
+                            style: TextStyle(
+                                fontSize: 10, color: theme.muted)),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-              const Spacer(),
-              _Keypad(
-                theme: theme,
-                onDigit: _tap,
-                onBackspace: _backspace,
-              ),
-              const Spacer(),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 18),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.shield_outlined,
-                        size: 13, color: theme.muted),
-                    const SizedBox(width: 4),
-                    Text('数据仅保存在本机, 仅你可访问',
-                        style: TextStyle(fontSize: 10, color: theme.muted)),
-                  ],
-                ),
-              ),
-            ],
+            ),
           ),
         ),
-      ),
+      ],
     );
   }
 }

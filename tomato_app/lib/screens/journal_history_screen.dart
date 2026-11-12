@@ -1,11 +1,13 @@
-// screens/journal_history_screen.dart - 复盘历史
+// 复盘历史
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../core/utils.dart';
 import '../models/journal_entry.dart';
 import '../providers/journal_provider.dart';
 import '../providers/settings_provider.dart';
+import '../theme/backgrounds.dart';
 import '../widgets/journal_sheet.dart';
 import '../widgets/ui.dart';
 
@@ -15,6 +17,8 @@ class JournalHistoryScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.watch<SettingsProvider>().currentTheme;
+    final sp = context.watch<SettingsProvider>();
+    final settings = sp.settings;
     final journal = context.watch<JournalProvider>();
     final entries = journal.entries;
 
@@ -25,36 +29,53 @@ class JournalHistoryScreen extends StatelessWidget {
       groups.putIfAbsent(key, () => []).add(e);
     }
 
-    return Scaffold(
-      backgroundColor: theme.background,
-      appBar: AppBar(
-        backgroundColor: theme.background,
-        elevation: 0,
-        foregroundColor: theme.foreground,
-        title: Text('复盘历史',
-            style: TextStyle(
-                fontSize: 19,
-                fontWeight: FontWeight.w700,
-                color: theme.foreground)),
-      ),
-      body: entries.isEmpty
-          ? const EmptyHint(
-              icon: Icons.menu_book_outlined,
-              text: '还没有复盘记录\n每天晚上花几分钟, 记录心情与收获',
-            )
-          : ListView(
-              padding: const EdgeInsets.fromLTRB(20, 4, 20, 30),
-              children: [
-                for (final g in groups.entries) ...[
-                  SectionHeader(
-                    title: g.key,
-                    subtitle: '${g.value.length} 天',
-                    margin: const EdgeInsets.fromLTRB(0, 18, 0, 8),
-                  ),
-                  ...g.value.map((e) => _EntryTile(entry: e)),
-                ],
-              ],
+    final overlay = SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness:
+          theme.isDark ? Brightness.light : Brightness.dark,
+      statusBarBrightness:
+          theme.isDark ? Brightness.dark : Brightness.light,
+    );
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        AppBackground(settings: settings, theme: theme),
+        AnnotatedRegion<SystemUiOverlayStyle>(
+          value: overlay,
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            appBar: AppBar(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              foregroundColor: theme.foreground,
+              title: Text('复盘历史',
+                  style: TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w700,
+                      color: theme.foreground)),
             ),
+            body: entries.isEmpty
+                ? const EmptyHint(
+                    icon: Icons.menu_book_outlined,
+                    text: '还没有复盘记录\n每天晚上花几分钟, 记录心情与收获',
+                  )
+                : ListView(
+                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 30),
+                    children: [
+                      for (final g in groups.entries) ...[
+                        SectionHeader(
+                          title: g.key,
+                          subtitle: '${g.value.length} 天',
+                          margin: const EdgeInsets.fromLTRB(0, 18, 0, 8),
+                        ),
+                        ...g.value.map((e) => _EntryTile(entry: e)),
+                      ],
+                    ],
+                  ),
+          ),
+        ),
+      ],
     );
   }
 }

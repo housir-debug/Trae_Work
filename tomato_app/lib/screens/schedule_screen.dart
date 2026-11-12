@@ -1,5 +1,6 @@
-// screens/schedule_screen.dart - 周视图日程(拖拽调整 + 冲突检测)
+// 周视图日程
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../core/utils.dart';
@@ -75,68 +76,87 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = context.watch<SettingsProvider>().currentTheme;
+    final sp = context.watch<SettingsProvider>();
+    final settings = sp.settings;
     final provider = context.watch<ScheduleProvider>();
     final events = provider.eventsFor(_selected);
     final planned = provider.plannedMinutesOn(_selected);
 
-    return Scaffold(
-      backgroundColor: theme.background,
-      appBar: AppBar(
-        backgroundColor: theme.background,
-        elevation: 0,
-        foregroundColor: theme.foreground,
-        title: Text('周视图',
-            style: TextStyle(
-                fontSize: 19,
-                fontWeight: FontWeight.w700,
-                color: theme.foreground)),
-        actions: [
-          TextButton(
-            onPressed: () => _selectDate(DateTime.now()),
-            child: Text('今天',
-                style: TextStyle(fontSize: 12, color: theme.primary)),
-          ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: theme.primary,
-        onPressed: () => showScheduleEditor(
-          context,
-          date: _selected,
-          startMinute: 9 * 60,
-        ),
-        child: const Icon(Icons.add, color: Colors.white),
-      ),
-      body: Column(
-        children: [
-          _weekStrip(theme, provider),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 6, 20, 8),
-            child: Row(
-              children: [
-                Text(
-                  '${shortDate(_selected)} ${weekdayFull(_selected)}',
+    final overlay = SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness:
+          theme.isDark ? Brightness.light : Brightness.dark,
+      statusBarBrightness:
+          theme.isDark ? Brightness.dark : Brightness.light,
+    );
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        AppBackground(settings: settings, theme: theme),
+        AnnotatedRegion<SystemUiOverlayStyle>(
+          value: overlay,
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            appBar: AppBar(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              foregroundColor: theme.foreground,
+              title: Text('周视图',
                   style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: theme.foreground),
+                      fontSize: 19,
+                      fontWeight: FontWeight.w700,
+                      color: theme.foreground)),
+              actions: [
+                TextButton(
+                  onPressed: () => _selectDate(DateTime.now()),
+                  child: Text('今天',
+                      style: TextStyle(fontSize: 12, color: theme.primary)),
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  '${events.length} 项 · 已规划 ${durationText(planned)}',
-                  style: TextStyle(fontSize: 10, color: theme.muted),
+              ],
+            ),
+            floatingActionButton: FloatingActionButton(
+              backgroundColor: theme.primary,
+              onPressed: () => showScheduleEditor(
+                context,
+                date: _selected,
+                startMinute: 9 * 60,
+              ),
+              child: const Icon(Icons.add, color: Colors.white),
+            ),
+            body: Column(
+              children: [
+                _weekStrip(theme, provider),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 6, 20, 8),
+                  child: Row(
+                    children: [
+                      Text(
+                        '${shortDate(_selected)} ${weekdayFull(_selected)}',
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: theme.foreground),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${events.length} 项 · 已规划 ${durationText(planned)}',
+                        style: TextStyle(fontSize: 10, color: theme.muted),
+                      ),
+                      const Spacer(),
+                      Text('长按拖动调整',
+                          style: TextStyle(fontSize: 9, color: theme.muted)),
+                    ],
+                  ),
                 ),
-                const Spacer(),
-                Text('长按拖动调整',
-                    style: TextStyle(fontSize: 9, color: theme.muted)),
+                Expanded(
+                  child: _timeline(theme, events),
+                ),
               ],
             ),
           ),
-          Expanded(
-            child: _timeline(theme, events),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
