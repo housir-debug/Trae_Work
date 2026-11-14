@@ -65,7 +65,7 @@
 | Flutter SDK | **3.27.4** (Dart 3.6.2) | 必须严格匹配，其他版本可能有兼容性问题 |
 | Java (JDK) | **17 (LTS)** | Gradle 8.3 官方支持；JDK 21+ 会导致 Gradle 解析失败 |
 | Android SDK | API Level 35 (Android 15) | platforms;android-35 + build-tools;35.0.0 + platform-tools |
-| Gradle | 8.3 | 由 `gradle-wrapper.properties` 指定，首次构建自动下载 |
+| Gradle | 8.3 | 由 `gradle-wrapper.properties` 指定（腾讯云镜像），首次构建自动下载 |
 | 操作系统 | macOS / Linux / Windows | 推荐 macOS 或 Linux |
 
 ### 2. 安装 Flutter SDK
@@ -224,6 +224,8 @@ cd tomato_app
 flutter build apk --release
 ```
 
+> 必须从项目根目录用 `flutter build` 触发构建：仓库没有提交 `gradlew` / `gradle-wrapper.jar` 二进制，Flutter 会在构建前自动补全。不要直接用系统全局的 `gradle`（版本不符会报 AGP 解析失败等错误）。Gradle 发行包默认从腾讯云镜像下载。
+
 产物路径：`build/app/outputs/flutter-apk/app-release.apk`（约 24-25 MB）
 
 验证签名：
@@ -242,11 +244,38 @@ export PUB_HOSTED_URL=https://pub.flutter-io.cn
 export FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn
 ```
 
-**Q: 构建报 `Unsupported class file major version 65/69`**
-A: JDK 版本太高。切换到 JDK 17（见步骤 3）。
+**Q: 构建报 `Plugin [id: 'com.android.application', version: '8.1.0'] was not found`（找不到 AGP）**
+A: 按顺序排查：
+1. **代理残留（最常见）**：检查 `android/gradle.properties` 是否含有 `-Dhttp.proxyHost` / `-Dhttps.proxyHost` 等指向本机端口的参数。若存在（例如历史版本残留的 `127.0.0.1:18080`），Gradle 会走一个不存在的代理，所有依赖下载全部失败并表现为「找不到插件」。删掉这些参数后重试。
+2. **镜像不可达**：`android/settings.gradle` 已内置阿里云镜像（`maven.aliyun.com/repository/google`、`repository/gradle-plugin`）和 `storage.flutter-io.cn`。确认当前网络能访问这些域名，公司网络需放行。
+3. **缓存损坏**：清理模块缓存后重建：
+```bash
+rm -rf ~/.gradle/caches/modules-2
+cd tomato_app && flutter clean && flutter pub get
+```
+4. 仍失败时用 `flutter build apk --release -v` 查看具体是哪个仓库连接超时。
 
 **Q: 构建报 `Could not resolve plugin dev.flutter.flutter-plugin-loader`**
-A: Gradle 版本与 JDK 不匹配。确认用的是 JDK 17，Gradle wrapper 指向 8.3。
+A: Gradle 版本与 JDK 不匹配。确认用的是 JDK 17，且 `gradle-wrapper.properties` 指向 Gradle 8.3。
+
+**Q: 卡在 `Downloading gradle-8.3-all.zip` 或下载极慢**
+A: wrapper 已默认指向腾讯云镜像 `https://mirrors.cloud.tencent.com/gradle/gradle-8.3-all.zip`。如果仍然慢，可手动下载后改为本地绝对路径（仅改本机，不要提交）：
+```properties
+distributionUrl=file\:///Users/you/gradle-8.3-all.zip
+```
+Windows 写法为 `file\:///C:/path/gradle-8.3-all.zip`。
+
+**Q: 已是 JDK 17 仍报 `Unsupported class file major version 65/69`**
+A: 说明 Gradle 实际调用的不是 JDK 17。用 `flutter doctor -v` 查看 `Java binary at:` 是否指向 17；Android Studio 内还需在 `Settings → Build, Execution, Deployment → Build Tools → Gradle → Gradle JDK` 选择 17。
+
+**Q: 提示 `We recommend using a newer Android Gradle plugin to use compileSdk = 35`**
+A: 只是提示不是错误。AGP 8.1.0 官方最高测试到 compileSdk 34，编译 API 35 可正常出包。若想消除提示，在 `android/gradle.properties` 增加一行：
+```properties
+android.suppressUnsupportedCompileSdk=35
+```
+
+**Q: 执行 `./gradlew` 报 `No such file or directory`**
+A: 仓库未提交 `gradlew` / `gradle-wrapper.jar` 二进制。直接从项目根目录执行 `flutter build apk --release`，Flutter 会自动补全 wrapper 文件。
 
 **Q: `flutter run` 找不到设备**
 A: 执行 `adb devices` 确认设备已连接并授权；模拟器需 Android 15 (API 35) 镜像。
