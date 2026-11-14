@@ -274,6 +274,12 @@ A: 只是提示不是错误。AGP 8.1.0 官方最高测试到 compileSdk 34，�
 android.suppressUnsupportedCompileSdk=35
 ```
 
+**Q: 构建报 `Failed to transform byte-buddy-x.x.x.jar ... Unsupported class file major version 68`**
+A: 这是 Jetifier 转换失败，不是 JDK 版本问题。较新的依赖 jar（如 `byte-buddy` 1.17.x）包含 Java 24 字节码（major 68），AGP 8.1 自带的 Jetifier 无法解析。本项目依赖均为 AndroidX，不需要 Jetifier：删除（或改为 `false`）`android/gradle.properties` 中的 `android.enableJetifier=true`，再 `flutter clean` 后重建即可。若确有必须 Jetifier 的旧依赖，可至少把该 jar 加入忽略列表：
+```properties
+android.jetifier.ignorelist=byte-buddy
+```
+
 **Q: 执行 `./gradlew` 报 `No such file or directory`**
 A: 仓库未提交 `gradlew` / `gradle-wrapper.jar` 二进制。直接从项目根目录执行 `flutter build apk --release`，Flutter 会自动补全 wrapper 文件。
 
